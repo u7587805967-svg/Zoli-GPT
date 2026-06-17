@@ -22,6 +22,7 @@ from PIL import Image
 from pypdf import PdfReader
 import docx
 from docx import Document
+from groq import Groq  # Hivatalos Groq kliens meghívása
 
 # --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
@@ -151,7 +152,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.2-3b-preview", "llama-3.2-11b-text-preview", "llama3-70b-8192"]
+        return ["llama3-8b-8192", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview", "llama3-70b-8192"]
 
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
@@ -232,42 +233,31 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
+    # JAVÍTOTT, HIVATALOS SDK-T HASZNÁLÓ FUNKCIÓ (Megszünteti a 400-as hibát)
     def safe_ollama_chat_stream(self, model: str, messages: list):
         if not GROQ_API_KEY:
             st.error("❌ Hiányzó Groq API kulcs a Beállításokból!")
             yield "Hiba: Nincs konfigurálva API kulcs."
             return
 
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": model,
-            "messages": messages,
-            "stream": True
-        }
-        
         try:
-            with httpx.stream("POST", "https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=60.0) as response:
-                if response.status_code != 200:
-                    yield f"Szerver hiba: {response.status_code}. Ellenőrizd a beállított API kulcsot!"
-                    return
-                for line in response.iter_lines():
-                    if line.startswith("data:"):
-                        data_str = line[5:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            data_json = json.loads(data_str)
-                            chunk = data_json['choices'][0]['delta'].get('content', '')
-                            if chunk:
-                                yield chunk
-                        except Exception:
-                            pass
+            # Hivatalos Groq kliens inicializálása a megadott kulccsal
+            client = Groq(api_key=GROQ_API_KEY)
+            
+            # Stream hívás indítása az SDK-val
+            stream = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                stream=True,
+                timeout=60.0
+            )
+            
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+                    
         except Exception as e:
-            yield f"Kommunikációs hiba a Groq felhővel: {e}"
+            yield f"Szerver hiba: Ellenőrizd a beállított API kulcsot és a modell nevet! Részletek: {e}"
 
     def search_web_sync(self, query: str) -> str:
         try:
@@ -287,14 +277,15 @@ class AsyncAIEngine:
         if not clean_query:
             return None
             
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-        translation_prompt = f"Translate this image description into a detailed English prompt for an AI image generator. Output ONLY the English text and nothing else: {clean_query}"
-        
         try:
-            res = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json={
-                "model": text_model, "messages": [{"role": "user", "content": translation_prompt}]
-            }, timeout=10.0)
-            en_query = res.json()['choices'][0]['message']['content'].strip()
+            client = Groq(api_key=GROQ_API_KEY)
+            translation_prompt = f"Translate this image description into a detailed English prompt for an AI image generator. Output ONLY the English text and nothing else: {clean_query}"
+            res = client.chat.completions.create(
+                model=text_model,
+                messages=[{"role": "user", "content": translation_prompt}],
+                timeout=10.0
+            )
+            en_query = res.choices[0].message.content.strip()
         except Exception:
             en_query = clean_query
         
@@ -307,12 +298,14 @@ class AsyncAIEngine:
             "translate": f"Translate the following text to fluent, professional English:\n\n{text}",
             "summary": f"Készíts egy rövid, pontos bulletpointos összefoglalót az alábbi szövegből magyarul:\n\n{text}"
         }
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         try:
-            res = httpx.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json={
-                "model": text_model, "messages": [{"role": "user", "content": prompts[mode]}]
-            }, timeout=20.0)
-            return res.json()['choices'][0]['message']['content']
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(
+                model=text_model,
+                messages=[{"role": "user", "content": prompts[mode]}],
+                timeout=20.0
+            )
+            return res.choices[0].message.content
         except Exception as e: return f"Hiba: {e}"
 
     def analyze_sentiment(self, text: str) -> str:
