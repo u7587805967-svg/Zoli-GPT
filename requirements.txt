@@ -1,0 +1,11 @@
+streamlit
+streamlit-mic-recorder
+faster-whisper
+duckduckgo-search
+Pillow
+pypdf
+python-docx
+numpy
+pandas
+httpx
+pytz
