@@ -280,8 +280,8 @@ class AsyncAIEngine:
         if not clean_query: return None
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
-            en_query = res.choices[0].message.content.strip()
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
+            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
@@ -294,10 +294,11 @@ class AsyncAIEngine:
         if not clean_query: return None
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
-            en_query = res.choices[0].message.content.strip()
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
+            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
-        return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=512&height=512&seed={int(time.time())}&model=flux&enhance=true&motion=true"
+        # Pollinations dedikált tiszta videógeneráló modellje, ami kép nélkül is igazi mozgóképet ad vissza
+        return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
