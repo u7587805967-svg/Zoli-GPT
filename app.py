@@ -22,7 +22,7 @@ from PIL import Image
 from pypdf import PdfReader
 import docx
 from docx import Document
-from groq import Groq  # Hivatalos Groq kliens meghívása
+from groq import Groq
 
 # --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class AppConfig:
 
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
-# --- 🎨 UI / UX PRÉMIUM STYLING (Jegyzetfüzet Stílus) ---
+# --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
     .stApp { background-color: #0d0f16; color: #f1f5f9; }
@@ -136,15 +136,13 @@ class DatabaseRepository:
             c_count = cursor.fetchone()[0]
             return {"history": h_count, "docs": d_count, "chunks": c_count}
 
-    def purge_user_data(self, username: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
-            cursor.execute("DELETE FROM document_vectors WHERE username=?", (username,))
-            cursor.execute("DELETE FROM latency_logs")
-            conn.commit()
+# --- 🤖 OPTIMALIZÁLT WHISPER BETÖLTÉS ---
+@st.cache_resource
+def load_whisper_model():
+    # Csak egyszer tölti be a memóriába, így a hangfelismerés azonnali lesz!
+    return WhisperModel("base", device="cpu", compute_type="int8")
 
-# --- 🧠 3. ASZINKRON AI MOTOR (GROQ INTEGRÁCIÓVAL) ---
+# --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
         self.db = db_repo
@@ -233,31 +231,25 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
-    # JAVÍTOTT, HIVATALOS SDK-T HASZNÁLÓ FUNKCIÓ (Megszünteti a 400-as hibát)
     def safe_ollama_chat_stream(self, model: str, messages: list):
         if not GROQ_API_KEY:
-            st.error("❌ Hiányzó Groq API kulcs a Beállításokból!")
+            st.error("❌ Hiányzó Groq API kulcs! Állítsd be a Streamlit Secrets-ben!")
             yield "Hiba: Nincs konfigurálva API kulcs."
             return
 
         try:
-            # Hivatalos Groq kliens inicializálása a megadott kulccsal
             client = Groq(api_key=GROQ_API_KEY)
-            
-            # Stream hívás indítása az SDK-val
             stream = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 stream=True,
                 timeout=60.0
             )
-            
             for chunk in stream:
                 if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-                    
         except Exception as e:
-            yield f"Szerver hiba: Ellenőrizd a beállított API kulcsot és a modell nevet! Részletek: {e}"
+            yield f"Szerver hiba: Ellenőrizd az API kulcsot! Részletek: {e}"
 
     def search_web_sync(self, query: str) -> str:
         try:
@@ -308,16 +300,6 @@ class AsyncAIEngine:
             return res.choices[0].message.content
         except Exception as e: return f"Hiba: {e}"
 
-    def analyze_sentiment(self, text: str) -> str:
-        pos = ["szeretnék", "jó", "kérlek", "köszönöm", "szuper", "segíts", "remek"]
-        neg = ["hiba", "rossz", "nem működik", "lassú", "probléma", "elromlott", "szar"]
-        t = text.lower()
-        p_s = sum(1 for w in pos if w in t)
-        n_s = sum(1 for w in neg if w in t)
-        if p_s > n_s: return "😊 Pozitív / Vidám"
-        if n_s > p_s: return "😡 Stresszes / Elégedetlen"
-        return "😐 Semleges / Elmélkedő"
-
     def validate_url_safety(self, text: str) -> str:
         urls = re.findall(r'(https?://\S+)', text)
         for url in urls:
@@ -336,7 +318,6 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "processed_image_bytes" not in st.session_state: st.session_state.processed_image_bytes = None
-if "current_sentiment" not in st.session_state: st.session_state.current_sentiment = "Nincs adat"
 
 chat_history = db_repo.fetch_history(cfg.DEFAULT_USER)
 
@@ -373,7 +354,7 @@ def generate_docx_download(text: str) -> bytes:
     return bio.getvalue()
 
 # --- 📑 INTERFACE TABS ---
-tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Hangulatnapló & Személyes Statisztika"])
+tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Személyes Statisztika"])
 
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
@@ -414,7 +395,7 @@ with st.sidebar:
     audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
 
     st.write("---")
-    st.subheader("🧠Memória Kapacitás")
+    st.subheader("🧠 Memória Kapacitás")
     current_ctx_len = len(get_clean_history(chat_history, cfg.MAX_HISTORY_CHARS).__str__())
     ctx_percentage = min(1.0, current_ctx_len / cfg.MAX_HISTORY_CHARS)
     st.sidebar.progress(ctx_percentage, text=f"{current_ctx_len} / {cfg.MAX_HISTORY_CHARS} karakter")
@@ -423,7 +404,8 @@ with st.sidebar:
 if audio:
     with st.spinner("🗨️ Hangjegyzet fordítása szöveggé..."):
         try:
-            segments, _ = WhisperModel("base", device="cpu", compute_type="int8").transcribe(io.BytesIO(audio['bytes']), language="hu")
+            whisper_model = load_whisper_model()
+            segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
             transcribed_text = "".join([s.text for s in segments]).strip()
             if transcribed_text:
                 st.session_state.voice_text = transcribed_text
@@ -464,11 +446,14 @@ with tab_chat:
                     if st.button("📝 Kivonat", key=f"sum_{idx}"): st.info(ai_engine.post_process_text(content, TEXT_MODEL, "summary"))
                     st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.session_state.voice_text:
-        user_input = st.session_state.voice_text
+    # Biztosítja a hangbeviteli szöveg helyes átemelését a beviteli mezőbe
+    default_input = st.session_state.voice_text if st.session_state.voice_text else ""
+    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field")
+    
+    # Ha volt hangalapú bevitel, azt használjuk felülírva
+    if default_input and not user_input:
+        user_input = default_input
         st.session_state.voice_text = ""
-    else:
-        user_input = st.chat_input("Kérdezz bármit...")
 
     if user_input:
         user_input = ai_engine.validate_url_safety(user_input)
