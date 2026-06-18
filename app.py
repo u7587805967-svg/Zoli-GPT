@@ -250,6 +250,7 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
+        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -280,8 +281,8 @@ class AsyncAIEngine:
         if not clean_query: return None
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
-            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
+            en_query = res.choices[0].message.content.strip()
         except Exception: en_query = clean_query
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
@@ -297,7 +298,6 @@ class AsyncAIEngine:
             res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
             en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
-        # Pollinations dedikált tiszta videógeneráló modellje, ami kép nélkül is igazi mozgóképet ad vissza
         return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
@@ -325,6 +325,7 @@ if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
+    # --- 👑 TITKOS ADMIN PANEL ---
     if is_admin:
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
