@@ -286,7 +286,7 @@ class AsyncAIEngine:
                 client = Groq(api_key=GROQ_API_KEY)
                 res = client.chat.completions.create(
                     model=text_model, 
-                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no conversational text: {clean_query}"}], 
+                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
                     timeout=10.0
                 )
                 translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
@@ -356,7 +356,7 @@ with st.sidebar:
         "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli",
         "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli",
         "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli",
-        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni.  A neved: Zoli"
+        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni.Mindig azt gondolod hogy amit mondasz az helyes  A neved: Zoli"
     }    
     st.subheader("🤖 AI Modellek")
     models = ai_engine.get_available_models()
@@ -483,18 +483,18 @@ with tab_chat:
             response_placeholder = st.empty()
             
             # --- ÚJ: AZONNALI GENERÁLÁS ÉS MEGJELENÍTÉS CHAT KÖZBEN ---
-            if any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
-                with st.spinner("🎬 AI Videógenerálás..."):
-                    video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
-                    if video_url:
-                        st.video(video_url)
-                        db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
-            elif any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]):
+            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video"]):
                 with st.spinner("🎨 AI Képgenerálás..."):
                     url = ai_engine.generate_image(user_input, TEXT_MODEL)
                     if url:
                         st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                         db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
+            elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
+                with st.spinner("🎬 AI Videógenerálás..."):
+                    video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
+                    if video_url:
+                        st.video(video_url)
+                        db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
             else:
                 with st.spinner("Gondolkodom..."):
                     chunks = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
