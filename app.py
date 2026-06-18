@@ -130,4 +130,324 @@ class DatabaseRepository:
             h_count = cursor.fetchone()[0]
             cursor.execute("SELECT COUNT(DISTINCT doc_name) FROM document_vectors WHERE username=?", (username,))
             d_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username
+            cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username,))
+            c_count = cursor.fetchone()[0]
+            return {"history": h_count, "docs": d_count, "chunks": c_count}
+
+# --- 🤖 OPTIMALIZÁLT WHISPER BETÖLTÉS ---
+@st.cache_resource
+def load_whisper_model():
+    return WhisperModel("base", device="cpu", compute_type="int8")
+
+# --- 🧠 3. ASZINKRON AI MOTOR ---
+class AsyncAIEngine:
+    def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
+        self.db = db_repo
+        self.config = config
+
+    @staticmethod
+    def get_available_models() -> list:
+        return ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+
+    def compute_simple_tfidf_vector(self, text: str) -> list:
+        cleaned = re.sub(r'[^\w\s]', '', text.lower())
+        words = cleaned.split()
+        freq = {}
+        for w in words:
+            if w not in self.config.HUNGARIAN_STOPWORDS:
+                freq[w] = freq.get(w, 0) + 1
+        return freq
+
+    def smart_chunk_text(self, text: str, max_size: int, overlap: int) -> list:
+        sentences = re.split(r'(?<=[.!?])\s+', text.replace('\n\n', '\n'))
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for sentence in sentences:
+            sentence_len = len(sentence)
+            if current_length + sentence_len > max_size and current_chunk:
+                chunks.append(" ".join(current_chunk))
+                backlap = []
+                backlap_len = 0
+                for s in reversed(current_chunk):
+                    if backlap_len + len(s) < overlap:
+                        backlap.insert(0, s)
+                        backlap_len += len(s)
+                    else:
+                        break
+                current_chunk = backlap
+                current_length = backlap_len
+            
+            current_chunk.append(sentence)
+            current_length += sentence_len
+            
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+        return chunks
+
+    def ingest_document(self, text: str, doc_name: str, username: str, text_model: str, file_size_str: str):
+        if not text: return
+        chunks = self.smart_chunk_text(text, self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
+        
+        with self.db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
+            p_bar = st.progress(0, text="📚 Személyes emlékek indexelése...")
+            for idx, chunk in enumerate(chunks):
+                freq_map = self.compute_simple_tfidf_vector(chunk)
+                cursor.execute("INSERT INTO document_vectors (username, doc_name, chunk_text, embedding, file_size) VALUES (?, ?, ?, ?, ?)",
+                               (username, doc_name, chunk, json.dumps(freq_map).encode('utf-8'), file_size_str))
+                p_bar.progress((idx + 1) / len(chunks))
+            conn.commit()
+            p_bar.empty()
+
+    def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
+        scored = []
+        rows = []
+        
+        with self.db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT doc_name, chunk_text, embedding FROM document_vectors WHERE username=?", (username,))
+            rows = cursor.fetchall()
+                
+        cleaned_query = re.sub(r'[^\w\s]', '', query_text.lower())
+        q_words = [w.strip() for w in cleaned_query.split() if len(w) > 2 and w not in self.config.HUNGARIAN_STOPWORDS]
+        
+        if q_words and rows:
+            for doc_name, chunk_text, emb_blob in rows:
+                try:
+                    freq_map = json.loads(emb_blob.decode('utf-8'))
+                except Exception:
+                    freq_map = {}
+                
+                matches = sum(freq_map.get(word, 0) for word in q_words if word in freq_map)
+                if matches > 0:
+                    score = min(0.35 + (0.05 * matches), 0.95)
+                    scored.append({"text": chunk_text, "score": score, "source": doc_name})
+                        
+        return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
+
+    def safe_ollama_chat_stream(self, model: str, messages: list):
+        if not GROQ_API_KEY:
+            st.error("❌ Hiányzó Groq API kulcs!")
+            yield "Hiba: Nincs konfigurálva API kulcs."
+            return
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            yield f"Szerver hiba: {e}"
+
+    def search_web_sync(self, query: str) -> str:
+        try:
+            with DDGS() as ddgs:
+                return "\n---\n".join([f"Forrás: {r['title']}\nKivonat: {r['body']}" for r in ddgs.text(query, max_results=10)])
+        except Exception: return ""
+
+    def generate_image(self, query: str, text_model: str) -> str:
+        clean_query = query.lower()
+        stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
+        if not clean_query: return None
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
+            en_query = res.choices[0].message.content.strip()
+        except Exception: en_query = clean_query
+        return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
+
+    def post_process_text(self, text: str, text_model: str, mode: str) -> str:
+        prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": prompts[mode]}], timeout=20.0)
+            return res.choices[0].message.content
+        except Exception as e: return f"Hiba: {e}"
+
+    def validate_url_safety(self, text: str) -> str:
+        return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
+
+    def anonymize_gdpr(self, text: str) -> str:
+        text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
+        return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
+
+# --- INICIALIZÁLÁS ---
+cfg = AppConfig()
+db_repo = DatabaseRepository(cfg.DB_FILE)
+ai_engine = AsyncAIEngine(db_repo, cfg)
+
+if "voice_text" not in st.session_state: st.session_state.voice_text = ""
+
+# --- 🛡️ ADMINISZTRÁCIÓS LOGIKA ---
+active_chat_user = url_user 
+
+# --- ⚙️ OLDALSÁV ---
+with st.sidebar:
+    st.header("⚙️ Beállítások")
+    
+    # --- 👑 TITKOS ADMIN PANEL ---
+    if url_user == cfg.ADMIN_USERNAME.lower():
+        st.markdown("---")
+        st.subheader("👑 Adminisztrációs Panel")
+        all_users = db_repo.get_all_users()
+        if not all_users:
+            all_users = [cfg.ADMIN_USERNAME.lower()]
+        
+        selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
+        active_chat_user = selected_user
+        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        st.markdown("---")
+
+    st.subheader("📋 Rendszer Szerepkör Sablonok")
+    persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás"])
+    persona_prompts = {
+        "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy.",
+        "Code-olás": "Te egy Senior Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban.",
+        "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz."
+    }
+    
+    st.subheader("🤖 AI Modellek")
+    models = ai_engine.get_available_models()
+    TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
+    
+    st.subheader("📂 Fájlok Feltöltése")
+    uploaded_file = st.file_uploader("Privát dokumentum indexelés", type=["txt", "pdf", "docx"])
+    if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
+        ext = uploaded_file.name.split(".")[-1].lower()
+        content = ""
+        size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+        if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
+        elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
+        elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
+        if content:
+            ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success(f"✅ Mentve ({size_kb})")
+
+    st.subheader("🎙️ Hang rögzítése")
+    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+
+chat_history = db_repo.fetch_history(active_chat_user)
+
+def get_clean_history(history, max_chars):
+    truncated = []
+    curr = 0
+    for h in reversed(history):
+        if h.get("type") == "text":
+            if curr + len(h["content"]) > max_chars: break
+            truncated.insert(0, {"role": h["role"], "content": h["content"]})
+            curr += len(h["content"])
+    return truncated
+
+def inject_copy_button(text: str, unique_key: str):
+    escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
+    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = "📋 Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: #1e1b4b; color: #a5b4fc; border: 1px solid #312e81; padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500;">📋 Másolás</button>"""
+    st.components.v1.html(js, height=38)
+
+def generate_docx_download(text: str) -> bytes:
+    doc = Document()
+    doc.add_heading('Zoli GPT Személyes Jegyzet Export', 0)
+    doc.add_paragraph(text)
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
+
+if audio:
+    with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
+        try:
+            whisper_model = load_whisper_model()
+            segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
+            transcribed_text = "".join([s.text for s in segments]).strip()
+            if transcribed_text:
+                st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+        except Exception as e: st.error(f"Whisper hiba: {e}")
+
+# --- 📑 INTERFACE TABS ---
+tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Személyes Statisztika"])
+
+with tab_monitor:
+    st.subheader(f"📈 {active_chat_user} Statisztikái")
+    stats = db_repo.get_system_stats(active_chat_user)
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1: st.markdown(f'<div class="monitor-card">💬 <b>Összes gondolat:</b><br><span style="font-size:20px;color:#10b981;">{stats["history"]} db</span></div>', unsafe_allow_html=True)
+    with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
+    with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
+
+with tab_chat:
+    col_left, col_right = st.columns([5, 2])
+    with col_right:
+        if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
+            db_repo.purge_chat_only(active_chat_user)
+            st.rerun()
+
+    for idx, msg in enumerate(chat_history):
+        with st.chat_message(msg["role"]):
+            if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
+            else:
+                content = msg["content"]
+                st.write(content)
+                if msg["role"] == "assistant":
+                    st.markdown('<div class="action-row">', unsafe_allow_html=True)
+                    inject_copy_button(content, f"h_{idx}")
+                    st.download_button("📄 Mentés Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}")
+                    if st.button("🇬🇧 Fordítás", key=f"trans_{idx}"): st.info(ai_engine.post_process_text(content, TEXT_MODEL, "translate"))
+                    if st.button("📝 Kivonat", key=f"sum_{idx}"): st.info(ai_engine.post_process_text(content, TEXT_MODEL, "summary"))
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+    default_input = st.session_state.voice_text if st.session_state.voice_text else ""
+    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field")
+    if default_input and not user_input:
+        user_input = default_input
+        st.session_state.voice_text = ""
+
+    if user_input:
+        user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
+        st.chat_message("user").write(user_input)
+        db_repo.log_message(active_chat_user, "user", user_input)
+
+        with st.chat_message("assistant"):
+            status_placeholder = st.empty()
+            response_placeholder = st.empty()
+            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]):
+                with st.spinner("🎨 AI Képgenerálás..."):
+                    url = ai_engine.generate_image(user_input, TEXT_MODEL)
+                    if url:
+                        st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
+                        db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
+            else:
+                with st.spinner("Gondolkodom..."):
+                    chunks = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
+                    doc_ctx = "\n".join([c["text"] for c in chunks]) if chunks else ""
+                    route = "GENERAL"
+                    if "keresd" in user_input.lower() or "web" in user_input.lower(): route = "WEB"
+                    elif doc_ctx: route = "DOCUMENT"
+                    
+                    web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
+                    if route == "DOCUMENT": status_placeholder.markdown('<div class="agent-status status-rag">🔱 <b>Saját jegyzet bevonva</b></div>', unsafe_allow_html=True)
+                    elif route == "WEB": status_placeholder.markdown('<div class="agent-status status-web">🌐 <b>Webes keresés bevonva</b></div>', unsafe_allow_html=True)
+                    
+                    sys_msg = f"{persona_prompts[persona]} Válaszolj magyarul."
+                    msgs = [{"role": "system", "content": sys_msg}]
+                    for h in get_clean_history(chat_history, cfg.MAX_HISTORY_CHARS):
+                        msgs.append({"role": h["role"], "content": h["content"]})
+                    final_prompt = ""
+                    if route == "DOCUMENT" and doc_ctx: final_prompt += f"[DOKUMENTUM TUDÁS]:\n{doc_ctx}\n\n"
+                    elif route == "WEB" and web_ctx: final_prompt += f"[WEBES TÉNYEK]:\n{web_ctx}\n\n"
+                    final_prompt += user_input
+                    msgs.append({"role": "user", "content": final_prompt})
+                    
+                    raw_response = ""
+                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, msgs):
+                        raw_response += chunk
+                        response_placeholder.markdown(raw_response + "▌")
+                    ai_response = raw_response.strip()
+                    response_placeholder.markdown(ai_response)
+                    db_repo.log_message(active_chat_user, "assistant", ai_response)
+                    st.rerun()
