@@ -28,7 +28,7 @@ from groq import Groq
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
-    ADMIN_USERNAME: str = "zoli"  # <--- Te vagy az admin! Ha ?user=zoli, látod az admin panelt.
+    ADMIN_USERNAME: str = "beni-252514569690023"  # <--- Frissített, egyedi admin azonosító
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = "56302786-02377baa984d7697c0b5cc4e1"
     MAX_HISTORY_CHARS: int = 4000
@@ -43,7 +43,6 @@ class AppConfig:
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
 # --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS ---
-# Ha a link: app.streamlit.app/?user=peti, akkor ő "peti" lesz. Ha nincs megadva, akkor "vendeg"
 query_params = st.query_params
 url_user = query_params.get("user", "vendeg").lower().strip()
 
@@ -118,7 +117,6 @@ class DatabaseRepository:
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
             conn.commit()
 
-    # --- ADMIN FUNKCIÓ: Összes regisztrált felhasználó lekérése ---
     def get_all_users(self) -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -287,7 +285,6 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 
 # --- 🛡️ ADMINISZTRÁCIÓS LOGIKA ---
-# Alapértelmezetten a bejelentkezett ember előzményét töltjük be
 active_chat_user = url_user 
 
 # --- ⚙️ OLDALSÁV ---
@@ -295,14 +292,13 @@ with st.sidebar:
     st.header("⚙️ Beállítások")
     
     # --- 👑 TITKOS ADMIN PANEL ---
-    if url_user == cfg.ADMIN_USERNAME:
+    if url_user == cfg.ADMIN_USERNAME.lower():
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
         all_users = db_repo.get_all_users()
         if not all_users:
-            all_users = [cfg.ADMIN_USERNAME]
+            all_users = [cfg.ADMIN_USERNAME.lower()]
         
-        # Kiválaszthatod, kinek a chatjét akarod látni és felügyelni
         selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
         active_chat_user = selected_user
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
@@ -330,7 +326,6 @@ with st.sidebar:
         elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
         elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
         if content:
-            # A fájlok is a saját profiljához mentődnek el!
             ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
             st.session_state[f"idx_{uploaded_file.name}"] = True
             st.sidebar.success(f"✅ Mentve ({size_kb})")
@@ -338,7 +333,6 @@ with st.sidebar:
     st.subheader("🎙️ Hang rögzítése")
     audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
 
-# Most már az aktív (kiválasztott) felhasználó történetét olvassuk be az adatbázisból
 chat_history = db_repo.fetch_history(active_chat_user)
 
 def get_clean_history(history, max_chars):
@@ -416,7 +410,6 @@ with tab_chat:
     if user_input:
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
-        # Az elküldött üzenet az aktívan kiválasztott felhasználóhoz mentődik
         db_repo.log_message(active_chat_user, "user", user_input)
 
         with st.chat_message("assistant"):
