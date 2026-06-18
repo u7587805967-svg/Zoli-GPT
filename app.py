@@ -115,19 +115,15 @@ class DatabaseRepository:
     def purge_chat_only(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            # Törlés előtt biztonsági másolat készítése
             cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             cursor.execute("INSERT INTO backup_chat_history SELECT * FROM chat_history WHERE username=?", (username,))
-            # Eredeti törlése
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
             conn.commit()
 
     def restore_chat_history(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            # Visszatöltés a biztonsági másolatból
             cursor.execute("INSERT INTO chat_history SELECT * FROM backup_chat_history WHERE username=?", (username,))
-            # Biztonsági másolat ürítése a visszatöltés után
             cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             conn.commit()
 
@@ -345,7 +341,7 @@ with st.sidebar:
             st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     st.subheader("🎙️ Hang rögzítése")
-    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=False, key="voice_input")
 
 chat_history = db_repo.fetch_history(active_chat_user)
 
@@ -388,15 +384,19 @@ def inject_auto_tts(text: str):
     """
     st.components.v1.html(js, height=0)
 
-if audio:
-    with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
-        try:
-            whisper_model = load_whisper_model()
-            segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
-            transcribed_text = "".join([s.text for s in segments]).strip()
-            if transcribed_text:
-                st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
-        except Exception as e: st.error(f"Whisper hiba: {e}")
+# --- UKRAJNA-BIZTOS AUDIO UTÓFELDOLGOZÁS ---
+if audio and "bytes" in audio:
+    if "last_audio_ts" not in st.session_state or st.session_state.last_audio_ts != len(audio['bytes']):
+        st.session_state.last_audio_ts = len(audio['bytes'])
+        with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
+            try:
+                whisper_model = load_whisper_model()
+                segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
+                transcribed_text = "".join([s.text for s in segments]).strip()
+                if transcribed_text:
+                    st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+                    st.rerun()
+            except Exception as e: st.error(f"Whisper hiba: {e}")
 
 # --- 📑 INTERFACE TABS ---
 tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Személyes Statisztika"])
@@ -420,7 +420,6 @@ with tab_chat:
             db_repo.restore_chat_history(active_chat_user)
             st.rerun()
 
-    # Automatikus TTS hívása új üzenet esetén
     if "play_audio" in st.session_state and st.session_state.play_audio:
         inject_auto_tts(st.session_state.play_audio)
         st.session_state.play_audio = ""
@@ -489,6 +488,5 @@ with tab_chat:
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
                     
-                    # Automatikus TTS trigger aktiválása
                     st.session_state.play_audio = ai_response
                     st.rerun()
