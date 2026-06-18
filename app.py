@@ -94,7 +94,6 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS backup_chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             conn.commit()
@@ -115,16 +114,7 @@ class DatabaseRepository:
     def purge_chat_only(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
-            cursor.execute("INSERT INTO backup_chat_history SELECT * FROM chat_history WHERE username=?", (username,))
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
-            conn.commit()
-
-    def restore_chat_history(self, username: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO chat_history SELECT * FROM backup_chat_history WHERE username=?", (username,))
-            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             conn.commit()
 
     def get_all_users(self) -> list:
@@ -238,7 +228,7 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
-    def safe_ollama_chat_stream(self, model: str, messages: list):
+    def safe_ollama_chat_stream((self, model: str, messages: list):
         if not GROQ_API_KEY:
             st.error("❌ Hiányzó Groq API kulcs!")
             yield "Hiba: Nincs konfigurálva API kulcs."
@@ -256,7 +246,7 @@ class AsyncAIEngine:
         """Szövegfelolvasás (TTS) generálása Groq API segítségével"""
         if not GROQ_API_KEY or not text: return None
         try:
-            # Csak a tiszta szöveges tartalmat olvassa fel, kiszűrve a markdown kódokat
+            # Markdown elemek és kódblokkok eltávolítása a tiszta beszédhez
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
             clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
             if not clean_text: return None
@@ -264,8 +254,8 @@ class AsyncAIEngine:
             client = Groq(api_key=GROQ_API_KEY)
             response = client.audio.speech.create(
                 model="tts-1-hd",
-                voice="nova",  # Opciók: alloy, echo, fable, onyx, nova, shimmer
-                input=clean_text[:1500]  # Biztonsági limit a hossznak
+                voice="nova",  # Választható hangok: alloy, echo, fable, onyx, nova, shimmer
+                input=clean_text[:1500]
             )
             return response.content
         except Exception:
@@ -423,7 +413,7 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    # --- SZÖVEGFELOLVASÁS LEJÁTSZÓ ELHELYEZÉSE ---
+                    # --- 🔊 AUDIO LEJÁTSZÓ ELHELYEZÉSE ---
                     audio_data = ai_engine.text_to_speech(content)
                     if audio_data:
                         st.audio(audio_data, format="audio/mp3")
@@ -440,51 +430,6 @@ with tab_chat:
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
-
-    # --- LÁTHATATLAN TELJES CHAT ELŐZMÉNY NAVIGÁCIÓ (FEL/LE NYILAK) ---
-    user_messages = [msg["content"] for msg in chat_history if msg["role"] == "user"]
-    if user_messages:
-        js_arrow = f"""
-        <script>
-        setInterval(function() {{
-            const doc = window.parent.document;
-            const textarea = doc.querySelector('textarea[data-testid="stChatInputTextArea"]');
-            if (textarea && !textarea.dataset.arrowAttached) {{
-                textarea.dataset.arrowAttached = "true";
-                
-                const history = {json.dumps(user_messages)};
-                let index = history.length;
-                let typedBuffer = "";
-
-                textarea.addEventListener('keydown', function(e) {{
-                    if (e.key === 'ArrowUp') {{
-                        if (index > 0) {{
-                            if (index === history.length) {{
-                                typedBuffer = textarea.value;
-                            }}
-                            e.preventDefault();
-                            index--;
-                            textarea.value = history[index];
-                            textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        }}
-                    }} else if (e.key === 'ArrowDown') {{
-                        if (index < history.length) {{
-                            e.preventDefault();
-                            index++;
-                            if (index === history.length) {{
-                                textarea.value = typedBuffer;
-                            }} else {{
-                                textarea.value = history[index];
-                            }}
-                            textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        }}
-                    }}
-                }});
-            }}
-        }}, 500);
-        </script>
-        """
-        st.components.v1.html(js_arrow, height=0)
 
     if user_input:
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
