@@ -94,6 +94,7 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS backup_chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             conn.commit()
@@ -114,7 +115,20 @@ class DatabaseRepository:
     def purge_chat_only(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            # Törlés előtt biztonsági másolat készítése
+            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
+            cursor.execute("INSERT INTO backup_chat_history SELECT * FROM chat_history WHERE username=?", (username,))
+            # Eredeti törlése
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
+            conn.commit()
+
+    def restore_chat_history(self, username: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Visszatöltés a biztonsági másolatból
+            cursor.execute("INSERT INTO chat_history SELECT * FROM backup_chat_history WHERE username=?", (username,))
+            # Biztonsági másolat ürítése a visszatöltés után
+            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             conn.commit()
 
     def get_all_users(self) -> list:
@@ -359,6 +373,21 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
+def inject_auto_tts(text: str):
+    clean_text = text.replace('`', "'").replace('\\', '\\\\')
+    js = f"""
+    <script>
+    if (window.speechSynthesis) {{
+        var msg = new SpeechSynthesisUtterance(`{clean_text}`);
+        msg.lang = 'hu-HU';
+        msg.pitch = 0.1; // Mély, férfias hangszín szimulálása
+        msg.rate = 1.0;
+        window.speechSynthesis.speak(msg);
+    }}
+    </script>
+    """
+    st.components.v1.html(js, height=0)
+
 if audio:
     with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
         try:
@@ -381,11 +410,20 @@ with tab_monitor:
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
 with tab_chat:
-    col_left, col_right = st.columns([5, 2])
+    col_left, col_right, col_far_right = st.columns([4, 2, 2])
     with col_right:
         if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
             db_repo.purge_chat_only(active_chat_user)
             st.rerun()
+    with col_far_right:
+        if st.button("↩️ Előzmények visszahozása", use_container_width=True):
+            db_repo.restore_chat_history(active_chat_user)
+            st.rerun()
+
+    # Automatikus TTS hívása új üzenet esetén
+    if "play_audio" in st.session_state and st.session_state.play_audio:
+        inject_auto_tts(st.session_state.play_audio)
+        st.session_state.play_audio = ""
 
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
@@ -450,4 +488,7 @@ with tab_chat:
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
+                    
+                    # Automatikus TTS trigger aktiválása
+                    st.session_state.play_audio = ai_response
                     st.rerun()
