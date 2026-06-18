@@ -28,7 +28,7 @@ from groq import Groq
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
-    ADMIN_USERNAME: str = "beni-252514569690023"  # <--- Frissített, egyedi admin azonosító
+    ADMIN_USERNAME: str = "beni-252514569690023"  # <--- Szigorú, egyedi admin azonosító
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = "56302786-02377baa984d7697c0b5cc4e1"
     MAX_HISTORY_CHARS: int = 4000
@@ -121,7 +121,10 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT DISTINCT username FROM chat_history")
-            return [r[0] for r in cursor.fetchall() if r[0]]
+            users = [r[0] for r in cursor.fetchall() if r[0]]
+            if not users:
+                return [url_user]
+            return users
 
     def get_system_stats(self, username: str) -> dict:
         with self._get_connection() as conn:
@@ -133,6 +136,42 @@ class DatabaseRepository:
             cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username,))
             c_count = cursor.fetchone()[0]
             return {"history": h_count, "docs": d_count, "chunks": c_count}
+
+    def get_admin_global_stats(self) -> dict:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(DISTINCT username) FROM chat_history")
+            total_users = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM chat_history")
+            total_messages = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM document_vectors")
+            total_chunks = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM latency_logs")
+            total_logs = cursor.fetchone()[0]
+            return {
+                "total_users": total_users,
+                "total_messages": total_messages,
+                "total_chunks": total_chunks,
+                "total_logs": total_logs
+            }
+
+    def get_user_detailed_table(self) -> pd.DataFrame:
+        with self._get_connection() as conn:
+            query = """
+                SELECT 
+                    c.username AS "Felhasználó",
+                    COUNT(c.id) AS "Összes üzenet",
+                    MAX(c.timestamp) AS "Utolsó aktivitás"
+                FROM chat_history c
+                GROUP BY c.username
+            """
+            return pd.read_sql_query(query, conn)
+
+    def purge_latency_logs(self):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM latency_logs")
+            conn.commit()
 
 # --- 🤖 OPTIMALIZÁLT WHISPER BETÖLTÉS ---
 @st.cache_resource
@@ -243,7 +282,6 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
-        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -301,24 +339,31 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 
-# --- 🛡️ ADMINISZTRÁCIÓS LOGIKA ---
+# --- 🛡️ EXTRA BIZTONSÁGOS ADMIN ELLENŐRZÉS ---
+# Csak akkor igaz az admin státusz, ha a link végén lévő token karakterre pontosan megegyezik a titkos kulccsal.
+raw_user_param = query_params.get("user", "vendeg").strip()
+is_admin = (raw_user_param == cfg.ADMIN_USERNAME)
+
 active_chat_user = url_user 
 
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 👑 TITKOS ADMIN PANEL ---
-    if url_user == cfg.ADMIN_USERNAME.lower():
+    # --- 👑 TITKOS ADMIN PANEL (SZIGORÍTVA) ---
+    if is_admin:
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
         all_users = db_repo.get_all_users()
-        if not all_users:
-            all_users = [cfg.ADMIN_USERNAME.lower()]
         
         selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
         active_chat_user = selected_user
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        
+        if st.button(f"🗑️ {active_chat_user} chat ürítése (Admin)", type="secondary", use_container_width=True):
+            db_repo.purge_chat_only(active_chat_user)
+            st.success(f"{active_chat_user} előzményei törölve!")
+            st.rerun()
         st.markdown("---")
 
     st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -387,8 +432,15 @@ if audio:
         except Exception as e: st.error(f"Whisper hiba: {e}")
 
 # --- 📑 INTERFACE TABS ---
-tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Személyes Statisztika"])
+tabs_list = ["💬 Chat", "📊 Személyes Statisztika"]
+if is_admin:
+    tabs_list.append("👑 Globális Adminisztráció")
 
+tabs = st.tabs(tabs_list)
+tab_chat = tabs[0]
+tab_monitor = tabs[1]
+
+# --- 📊 SZEMÉLYES STATISZTIKA TAB ---
 with tab_monitor:
     st.subheader(f"📈 {active_chat_user} Statisztikái")
     stats = db_repo.get_system_stats(active_chat_user)
@@ -397,6 +449,53 @@ with tab_monitor:
     with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
+# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB (Csak a pontos linken érhető el) ---
+if is_admin:
+    with tabs[2]:
+        st.subheader("👑 Globális Rendszerfelügyelet")
+        
+        g_stats = db_repo.get_admin_global_stats()
+        col_g1, col_g2, col_g3, col_g4 = st.columns(4)
+        with col_g1: st.markdown(f'<div class="monitor-card">👥 <b>Összes Felhasználó</b><br><span style="font-size:22px;color:#f59e0b;">{g_stats["total_users"]} db</span></div>', unsafe_allow_html=True)
+        with col_g2: st.markdown(f'<div class="monitor-card">💬 <b>Összes Üzenet</b><br><span style="font-size:22px;color:#10b981;">{g_stats["total_messages"]} db</span></div>', unsafe_allow_html=True)
+        with col_g3: st.markdown(f'<div class="monitor-card">📚 <b>RAG Chunkok</b><br><span style="font-size:22px;color:#6366f1;">{g_stats["total_chunks"]} db</span></div>', unsafe_allow_html=True)
+        with col_g4: st.markdown(f'<div class="monitor-card">⏱️ <b>Latencia Logok</b><br><span style="font-size:22px;color:#ec4899;">{g_stats["total_logs"]} db</span></div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        st.write("### 👥 Felhasználói Adatbázis Áttekintés")
+        user_df = db_repo.get_user_detailed_table()
+        if not user_df.empty:
+            st.dataframe(user_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Még nincsenek adatok.")
+            
+        st.markdown("---")
+        
+        st.write("### 🛠️ Adatbázis Karbantartás")
+        col_btn1, col_btn2 = st.columns(2)
+        
+        with col_btn1:
+            if os.path.exists(cfg.DB_FILE):
+                with open(cfg.DB_FILE, "rb") as f:
+                    db_bytes = f.read()
+                st.download_button(
+                    label="📥 Teljes Adatbázis (.db) Letöltése Backupként",
+                    data=db_bytes,
+                    file_name=f"backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{cfg.DB_FILE}",
+                    mime="application/octet-stream",
+                    use_container_width=True
+                )
+            else:
+                st.error("Az adatbázis fájl nem található.")
+                
+        with col_btn2:
+            if st.button("🧹 Latencia Logok Teljes Ürítése", use_container_width=True, type="primary"):
+                db_repo.purge_latency_logs()
+                st.success("Latencia naplók kiürítve!")
+                st.rerun()
+
+# --- 💬 CHAT INTERFACE ---
 with tab_chat:
     col_left, col_right = st.columns([5, 2])
     with col_right:
@@ -411,7 +510,6 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    # --- 🔊 HANG LEJÁTSZÓ MŰKÖDIK ---
                     audio_data = ai_engine.text_to_speech(content)
                     if audio_data:
                         st.audio(audio_data, format="audio/mp3")
@@ -473,5 +571,4 @@ with tab_chat:
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
                     
-                    # --- TÖKÉLETES MEGOLDÁS: Csak az elemet és a state-et triggereljük, az egész oldal kemény újratöltése nélkül ---
                     st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
