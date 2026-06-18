@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit st
 import os
 import datetime
 import httpx
@@ -94,6 +94,7 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS backup_chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             conn.commit()
@@ -114,7 +115,16 @@ class DatabaseRepository:
     def purge_chat_only(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
+            cursor.execute("INSERT INTO backup_chat_history SELECT * FROM chat_history WHERE username=?", (username,))
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
+            conn.commit()
+
+    def restore_chat_history(self, username: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO chat_history SELECT * FROM backup_chat_history WHERE username=?", (username,))
+            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             conn.commit()
 
     def get_all_users(self) -> list:
@@ -407,7 +417,7 @@ with tab_chat:
         user_input = default_input
         st.session_state.voice_text = ""
 
-    # --- LÁTHATATLAN BILLENTYŰ-HOZZÁRENDELÉS (NINCS ÚJ GOMB, NINCS PLUSZ UI ELEM) ---
+    # --- LÁTHATATLAN TELJES CHAT ELŐZMÉNY NAVIGÁCIÓ (FEL/LE NYILAK) ---
     user_messages = [msg["content"] for msg in chat_history if msg["role"] == "user"]
     if user_messages:
         js_arrow = f"""
@@ -417,11 +427,33 @@ with tab_chat:
             const textarea = doc.querySelector('textarea[data-testid="stChatInputTextArea"]');
             if (textarea && !textarea.dataset.arrowAttached) {{
                 textarea.dataset.arrowAttached = "true";
+                
+                const history = {json.dumps(user_messages)};
+                let index = history.length;
+                let typedBuffer = "";
+
                 textarea.addEventListener('keydown', function(e) {{
-                    if (e.key === 'ArrowUp' && textarea.value === '') {{
-                        e.preventDefault();
-                        textarea.value = {json.dumps(user_messages[-1])};
-                        textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    if (e.key === 'ArrowUp') {{
+                        if (index > 0) {{
+                            if (index === history.length) {{
+                                typedBuffer = textarea.value;
+                            }}
+                            e.preventDefault();
+                            index--;
+                            textarea.value = history[index];
+                            textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        }}
+                    }} else if (e.key === 'ArrowDown') {{
+                        if (index < history.length) {{
+                            e.preventDefault();
+                            index++;
+                            if (index === history.length) {{
+                                textarea.value = typedBuffer;
+                            }} else {{
+                                textarea.value = history[index];
+                            }}
+                            textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        }}
                     }}
                 }});
             }}
