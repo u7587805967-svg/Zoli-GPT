@@ -299,7 +299,7 @@ class AsyncAIEngine:
             res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
             en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
-        return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
+        return f"https://gen.pollinations.ai/video/{urllib.parse.quote(en_query)}"
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
