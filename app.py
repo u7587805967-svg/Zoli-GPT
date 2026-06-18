@@ -410,15 +410,35 @@ with tab_monitor:
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
 with tab_chat:
-    col_left, col_right, col_far_right = st.columns([4, 2, 2])
+    col_left, col_right = st.columns([6, 2])
     with col_right:
         if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
             db_repo.purge_chat_only(active_chat_user)
             st.rerun()
-    with col_far_right:
-        if st.button("↩️ Előzmények visszahozása", use_container_width=True):
-            db_repo.restore_chat_history(active_chat_user)
-            st.rerun()
+
+    # --- ⌨️ NYÍL BILLENTYŰS ELŐZMÉNY VISSZAHOZÁS (JAVASCRIPT INJECTOR) ---
+    user_messages = [msg["content"] for msg in chat_history if msg["role"] == "user"]
+    last_user_msg = user_messages[-1] if user_messages else ""
+    if last_user_msg:
+        escaped_last_msg = json.dumps(last_user_msg)
+        js_arrow = f"""
+        <script>
+        (function() {{
+            const ta = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
+            if (ta && !ta.dataset.arrowListenerAttached) {{
+                ta.dataset.arrowListenerAttached = "true";
+                ta.addEventListener('keydown', function(e) {{
+                    if (e.key === 'ArrowUp' && ta.value === '') {{
+                        e.preventDefault();
+                        ta.value = {escaped_last_msg};
+                        ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                }});
+            }}
+        }})();
+        </script>
+        """
+        st.components.v1.html(js_arrow, height=0)
 
     if "play_audio" in st.session_state and st.session_state.play_audio:
         inject_auto_tts(st.session_state.play_audio)
