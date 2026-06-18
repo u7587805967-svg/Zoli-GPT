@@ -411,7 +411,7 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    # --- 🔊 SZÖVEGFELOLVASÓ JAVÍTÁSA ---
+                    # --- 🔊 HANG LEJÁTSZÓ MŰKÖDIK ---
                     audio_data = ai_engine.text_to_speech(content)
                     if audio_data:
                         st.audio(audio_data, format="audio/mp3")
@@ -472,4 +472,6 @@ with tab_chat:
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
-                    # --- st.rerun() TÖRÖLVE A NYILAK MEMÓRIÁJÁÉRT ---
+                    
+                    # --- TÖKÉLETES MEGOLDÁS: Csak az elemet és a state-et triggereljük, az egész oldal kemény újratöltése nélkül ---
+                    st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
