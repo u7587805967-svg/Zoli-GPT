@@ -94,7 +94,6 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS backup_chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             conn.commit()
@@ -115,16 +114,7 @@ class DatabaseRepository:
     def purge_chat_only(self, username: str):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
-            cursor.execute("INSERT INTO backup_chat_history SELECT * FROM chat_history WHERE username=?", (username,))
             cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
-            conn.commit()
-
-    def restore_chat_history(self, username: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO chat_history SELECT * FROM backup_chat_history WHERE username=?", (username,))
-            cursor.execute("DELETE FROM backup_chat_history WHERE username=?", (username,))
             conn.commit()
 
     def get_all_users(self) -> list:
@@ -341,7 +331,7 @@ with st.sidebar:
             st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     st.subheader("🎙️ Hang rögzítése")
-    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=False, key="voice_input")
+    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
 
 chat_history = db_repo.fetch_history(active_chat_user)
 
@@ -369,34 +359,15 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
-def inject_auto_tts(text: str):
-    clean_text = text.replace('`', "'").replace('\\', '\\\\')
-    js = f"""
-    <script>
-    if (window.speechSynthesis) {{
-        var msg = new SpeechSynthesisUtterance(`{clean_text}`);
-        msg.lang = 'hu-HU';
-        msg.pitch = 0.1; // Mély, férfias hangszín szimulálása
-        msg.rate = 1.0;
-        window.speechSynthesis.speak(msg);
-    }}
-    </script>
-    """
-    st.components.v1.html(js, height=0)
-
-# --- UKRAJNA-BIZTOS AUDIO UTÓFELDOLGOZÁS ---
-if audio and "bytes" in audio:
-    if "last_audio_ts" not in st.session_state or st.session_state.last_audio_ts != len(audio['bytes']):
-        st.session_state.last_audio_ts = len(audio['bytes'])
-        with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
-            try:
-                whisper_model = load_whisper_model()
-                segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
-                transcribed_text = "".join([s.text for s in segments]).strip()
-                if transcribed_text:
-                    st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
-                    st.rerun()
-            except Exception as e: st.error(f"Whisper hiba: {e}")
+if audio:
+    with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
+        try:
+            whisper_model = load_whisper_model()
+            segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
+            transcribed_text = "".join([s.text for s in segments]).strip()
+            if transcribed_text:
+                st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+        except Exception as e: st.error(f"Whisper hiba: {e}")
 
 # --- 📑 INTERFACE TABS ---
 tab_chat, tab_monitor = st.tabs(["💬 Chat", "📊 Személyes Statisztika"])
@@ -410,39 +381,11 @@ with tab_monitor:
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
 with tab_chat:
-    col_left, col_right = st.columns([6, 2])
+    col_left, col_right = st.columns([5, 2])
     with col_right:
         if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
             db_repo.purge_chat_only(active_chat_user)
             st.rerun()
-
-    # --- ⌨️ NYÍL BILLENTYŰS ELŐZMÉNY VISSZAHOZÁS (JAVASCRIPT INJECTOR) ---
-    user_messages = [msg["content"] for msg in chat_history if msg["role"] == "user"]
-    last_user_msg = user_messages[-1] if user_messages else ""
-    if last_user_msg:
-        escaped_last_msg = json.dumps(last_user_msg)
-        js_arrow = f"""
-        <script>
-        (function() {{
-            const ta = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
-            if (ta && !ta.dataset.arrowListenerAttached) {{
-                ta.dataset.arrowListenerAttached = "true";
-                ta.addEventListener('keydown', function(e) {{
-                    if (e.key === 'ArrowUp' && ta.value === '') {{
-                        e.preventDefault();
-                        ta.value = {escaped_last_msg};
-                        ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    }}
-                }});
-            }}
-        }})();
-        </script>
-        """
-        st.components.v1.html(js_arrow, height=0)
-
-    if "play_audio" in st.session_state and st.session_state.play_audio:
-        inject_auto_tts(st.session_state.play_audio)
-        st.session_state.play_audio = ""
 
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
@@ -463,6 +406,29 @@ with tab_chat:
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
+
+    # --- LÁTHATATLAN BILLENTYŰ-HOZZÁRENDELÉS (NINCS ÚJ GOMB, NINCS PLUSZ UI ELEM) ---
+    user_messages = [msg["content"] for msg in chat_history if msg["role"] == "user"]
+    if user_messages:
+        js_arrow = f"""
+        <script>
+        setInterval(function() {{
+            const doc = window.parent.document;
+            const textarea = doc.querySelector('textarea[data-testid="stChatInputTextArea"]');
+            if (textarea && !textarea.dataset.arrowAttached) {{
+                textarea.dataset.arrowAttached = "true";
+                textarea.addEventListener('keydown', function(e) {{
+                    if (e.key === 'ArrowUp' && textarea.value === '') {{
+                        e.preventDefault();
+                        textarea.value = {json.dumps(user_messages[-1])};
+                        textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                }});
+            }}
+        }}, 500);
+        </script>
+        """
+        st.components.v1.html(js_arrow, height=0)
 
     if user_input:
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
@@ -507,6 +473,4 @@ with tab_chat:
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
-                    
-                    st.session_state.play_audio = ai_response
                     st.rerun()
