@@ -279,14 +279,25 @@ class AsyncAIEngine:
             clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
         clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
         if not clean_query: return None
-        try:
-            client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
-            en_query = res.choices[0].message.content.strip()
-        except Exception: en_query = clean_query
+        
+        en_query = clean_query
+        if GROQ_API_KEY:
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                res = client.chat.completions.create(
+                    model=text_model, 
+                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no conversational text: {clean_query}"}], 
+                    timeout=10.0
+                )
+                translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
+                if translated:
+                    en_query = translated
+            except Exception:
+                en_query = clean_query
+                
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
-    # --- 🎬 VIDEÓGENERÁLÓ MEGHÍVÁS JAVÍTVA ---
+    # --- 🎬 ÚJ: VIDEÓGENERÁLÓ MEGHÍVÁS HOZZÁADVA ---
     def generate_video(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
@@ -299,7 +310,7 @@ class AsyncAIEngine:
             res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
             en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
-        return f"https://gen.pollinations.ai/video/{urllib.parse.quote(en_query)}"
+        return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
@@ -310,7 +321,7 @@ class AsyncAIEngine:
         except Exception as e: return f"Hiba: {e}"
 
     def validate_url_safety(self, text: str) -> str:
-        return re.sub(r'(http://\S+)', '⚠️ [NEM BIZSIANOS LINKEK ELTÁVOLÍTVA]', text)
+        return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
 
     def anonymize_gdpr(self, text: str) -> str:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
@@ -439,6 +450,7 @@ with tab_chat:
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
             if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
+            # --- ÚJ: HISTÓRIA VIDEÓ MEGJELENÍTÉSE ---
             elif msg.get("type") == "video": st.video(msg["content"])
             else:
                 content = msg["content"]
@@ -470,6 +482,7 @@ with tab_chat:
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
+            # --- ÚJ: AZONNALI GENERÁLÁS ÉS MEGJELENÍTÉS CHAT KÖZBEN ---
             if any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
                 with st.spinner("🎬 AI Videógenerálás..."):
                     video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
