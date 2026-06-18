@@ -286,6 +286,7 @@ class AsyncAIEngine:
         except Exception: en_query = clean_query
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
+    # --- 🎬 ÚJ: VIDEÓGENERÁLÓ MEGHÍVÁS HOZZÁADVA ---
     def generate_video(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
@@ -438,6 +439,7 @@ with tab_chat:
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
             if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
+            # --- ÚJ: HISTÓRIA VIDEÓ MEGJELENÍTÉSE ---
             elif msg.get("type") == "video": st.video(msg["content"])
             else:
                 content = msg["content"]
@@ -469,6 +471,7 @@ with tab_chat:
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
+            # --- ÚJ: AZONNALI GENERÁLÁS ÉS MEGJELENÍTÉS CHAT KÖZBEN ---
             if any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
                 with st.spinner("🎬 AI Videógenerálás..."):
                     video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
