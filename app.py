@@ -252,6 +252,25 @@ class AsyncAIEngine:
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
+    def text_to_speech(self, text: str) -> bytes:
+        """Szövegfelolvasás (TTS) generálása Groq API segítségével"""
+        if not GROQ_API_KEY or not text: return None
+        try:
+            # Csak a tiszta szöveges tartalmat olvassa fel, kiszűrve a markdown kódokat
+            clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+            clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
+            if not clean_text: return None
+            
+            client = Groq(api_key=GROQ_API_KEY)
+            response = client.audio.speech.create(
+                model="tts-1-hd",
+                voice="nova",  # Opciók: alloy, echo, fable, onyx, nova, shimmer
+                input=clean_text[:1500]  # Biztonsági limit a hossznak
+            )
+            return response.content
+        except Exception:
+            return None
+
     def search_web_sync(self, query: str) -> str:
         try:
             with DDGS() as ddgs:
@@ -404,6 +423,11 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
+                    # --- SZÖVEGFELOLVASÁS LEJÁTSZÓ ELHELYEZÉSE ---
+                    audio_data = ai_engine.text_to_speech(content)
+                    if audio_data:
+                        st.audio(audio_data, format="audio/mp3")
+
                     st.markdown('<div class="action-row">', unsafe_allow_html=True)
                     inject_copy_button(content, f"h_{idx}")
                     st.download_button("📄 Mentés Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}")
