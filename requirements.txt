@@ -1,11 +1,11 @@
 streamlit
-streamlit-mic-recorder
+groq
 faster-whisper
 duckduckgo-search
-Pillow
+pillow
 pypdf
 python-docx
 numpy
 pandas
 httpx
-pytz
+streamlit-mic-recorder
