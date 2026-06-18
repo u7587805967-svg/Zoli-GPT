@@ -246,7 +246,6 @@ class AsyncAIEngine:
         """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
         if not text: return None
         try:
-            # Markdown elemek és kódblokkok eltávolítása a tiszta beszédhez
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
             clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
             if not clean_text: return None
@@ -412,7 +411,7 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    # --- 🔊 AUDIO LEJÁTSZÓ ELHELYEZÉSE (JAVÍTVA) ---
+                    # --- 🔊 SZÖVEGFELOLVASÓ JAVÍTÁSA ---
                     audio_data = ai_engine.text_to_speech(content)
                     if audio_data:
                         st.audio(audio_data, format="audio/mp3")
@@ -473,4 +472,4 @@ with tab_chat:
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
-                    # st.rerun()  <--- KIVÉVE A NYILAKKAL VALÓ LAPOZÁSÉRT!
+                    # --- st.rerun() TÖRÖLVE A NYILAK MEMÓRIÁJÁÉRT ---
