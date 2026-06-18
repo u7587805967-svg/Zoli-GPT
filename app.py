@@ -356,7 +356,7 @@ with st.sidebar:
         "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli",
         "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli",
         "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli",
-        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni.Mindig azt gondolod hogy amit mondasz az helyes  A neved: Zoli"
+        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli"
     }    
     st.subheader("🤖 AI Modellek")
     models = ai_engine.get_available_models()
