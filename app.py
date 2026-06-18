@@ -242,6 +242,24 @@ class AsyncAIEngine:
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
+    def text_to_speech(self, text: str) -> bytes:
+        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
+        if not text: return None
+        try:
+            # Markdown elemek és kódblokkok eltávolítása a tiszta beszédhez
+            clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+            clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
+            if not clean_text: return None
+            
+            from gtts import gTTS
+            tts = gTTS(text=clean_text[:1000], lang='hu', slow=False)
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            fp.seek(0)
+            return fp.read()
+        except Exception:
+            return None
+
     def search_web_sync(self, query: str) -> str:
         try:
             with DDGS() as ddgs:
@@ -394,6 +412,11 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
+                    # --- 🔊 AUDIO LEJÁTSZÓ ELHELYEZÉSE (JAVÍTVA) ---
+                    audio_data = ai_engine.text_to_speech(content)
+                    if audio_data:
+                        st.audio(audio_data, format="audio/mp3")
+
                     st.markdown('<div class="action-row">', unsafe_allow_html=True)
                     inject_copy_button(content, f"h_{idx}")
                     st.download_button("📄 Mentés Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}")
@@ -450,4 +473,4 @@ with tab_chat:
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
-                    st.rerun()
+                    # st.rerun()  <--- KIVÉVE A NYILAKKAL VALÓ LAPOZÁSÉRT!
