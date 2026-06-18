@@ -1,4 +1,4 @@
-import streamlit st
+import streamlit as st
 import os
 import datetime
 import httpx
