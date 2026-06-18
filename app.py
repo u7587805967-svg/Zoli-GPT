@@ -286,7 +286,7 @@ class AsyncAIEngine:
         except Exception: en_query = clean_query
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
-    # --- 🎬 ÚJ: VIDEÓGENERÁLÓ MEGHÍVÁS HOZZÁADVA ---
+    # --- 🎬 ÚJ: VIDEÓGENERÁLÓ MEGHÍVÁS HOZZÁADVA (JAVÍTVA) ---
     def generate_video(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
