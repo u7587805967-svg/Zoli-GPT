@@ -28,7 +28,7 @@ from groq import Groq
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
-    ADMIN_USERNAME: str = "beni-252514569690023"  # <--- Szigorú, egyedi admin azonosító token
+    ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = "56302786-02377baa984d7697c0b5cc4e1"
     MAX_HISTORY_CHARS: int = 4000
@@ -42,15 +42,16 @@ class AppConfig:
 
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
+# --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
+cfg = AppConfig()
+
 # --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS ---
 query_params = st.query_params
-# Megtartjuk a nyers formátumot az admin ellenőrzéshez, de levágjuk a felesleges szóközöket
-raw_user_param = query_params.get("user", "vendeg").strip()
-url_user = raw_user_param.lower()
+url_user = query_params.get("user", "vendeg").lower().strip()
 
-# --- 🛡️ BIZTONSÁGI ELLENŐRZÉS ---
-# Az admin panel KIZÁRÓLAG akkor kapcsol be, ha a paraméter pontosan megegyezik a titkos tokennel
-is_admin = (raw_user_param == cfg_admin_check := AppConfig.ADMIN_USERNAME)
+# --- 🛡️ ADMINISZTRÁCIÓS LOGIKA (KISBETŰ-FÜGGETLEN) ---
+is_admin = (url_user == cfg.ADMIN_USERNAME.lower().strip())
+active_chat_user = url_user 
 
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
@@ -127,10 +128,7 @@ class DatabaseRepository:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT DISTINCT username FROM chat_history")
-            users = [r[0] for r in cursor.fetchall() if r[0]]
-            if not users:
-                return [url_user]
-            return users
+            return [r[0] for r in cursor.fetchall() if r[0]]
 
     def get_system_stats(self, username: str) -> dict:
         with self._get_connection() as conn:
@@ -252,6 +250,7 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
+        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -302,14 +301,11 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-# --- INICIALIZÁLÁS ---
-cfg = AppConfig()
+# --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 db_repo = DatabaseRepository(cfg.DB_FILE)
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
-
-active_chat_user = url_user 
 
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
@@ -320,15 +316,12 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
         all_users = db_repo.get_all_users()
+        if not all_users:
+            all_users = [cfg.ADMIN_USERNAME.lower()]
         
         selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
         active_chat_user = selected_user
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
-        
-        if st.button(f"🗑️ {active_chat_user} chat ürítése (Admin)", type="secondary", use_container_width=True):
-            db_repo.purge_chat_only(active_chat_user)
-            st.success(f"{active_chat_user} előzményei törölve!")
-            st.rerun()
         st.markdown("---")
 
     st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -397,7 +390,6 @@ if audio:
         except Exception as e: st.error(f"Whisper hiba: {e}")
 
 # --- 📑 INTERFACE TABS ---
-# Dinamikusan építjük fel a füleket: csak az admin látja a harmadik fület
 tabs_headers = ["💬 Chat", "📊 Személyes Statisztika"]
 if is_admin:
     tabs_headers.append("👑 Globális Adminisztráció")
@@ -419,8 +411,7 @@ with tab_monitor:
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
-        st.info("Sikeres adminisztrátori belépés az egyedi token hivatkozással.")
-        # Ide jöhetnek a korábbi globális admin funkciók igény szerint
+        st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {cfg.ADMIN_USERNAME}")
 
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
