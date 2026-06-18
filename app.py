@@ -286,6 +286,20 @@ class AsyncAIEngine:
         except Exception: en_query = clean_query
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
+    def generate_video(self, query: str, text_model: str) -> str:
+        clean_query = query.lower()
+        stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
+        if not clean_query: return None
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English: {clean_query}"}], timeout=10.0)
+            en_query = res.choices[0].message.content.strip()
+        except Exception: en_query = clean_query
+        return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=512&height=512&seed={int(time.time())}&model=flux&enhance=true&motion=true"
+
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
         try:
@@ -424,6 +438,7 @@ with tab_chat:
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
             if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
+            elif msg.get("type") == "video": st.video(msg["content"])
             else:
                 content = msg["content"]
                 st.write(content)
@@ -453,7 +468,13 @@ with tab_chat:
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
             response_placeholder = st.empty()
-            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]):
+            if any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
+                with st.spinner("🎬 AI Videógenerálás..."):
+                    video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
+                    if video_url:
+                        st.video(video_url)
+                        db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
+            elif any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]):
                 with st.spinner("🎨 AI Képgenerálás..."):
                     url = ai_engine.generate_image(user_input, TEXT_MODEL)
                     if url:
