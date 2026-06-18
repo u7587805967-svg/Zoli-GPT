@@ -250,7 +250,6 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
-        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -325,7 +324,6 @@ if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 👑 TITKOS ADMIN PANEL ---
     if is_admin:
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
@@ -468,6 +466,7 @@ with tab_chat:
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
             response_placeholder = st.empty()
+            
             if any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
                 with st.spinner("🎬 AI Videógenerálás..."):
                     video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
