@@ -368,6 +368,7 @@ db_repo = DatabaseRepository(cfg.DB_FILE)
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
+if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
 
 # ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
 def get_clean_history(history, max_chars, text_model=None):
@@ -454,6 +455,12 @@ with st.sidebar:
 
     st.subheader("🎙️ Hang rögzítése")
     audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+    
+    if st.session_state.get("voice_playing", False):
+        if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
+            st.session_state.mute_voice = True
+            st.session_state.voice_playing = False
+            st.rerun()
 
 chat_history = db_repo.fetch_history(active_chat_user)
 
@@ -474,6 +481,7 @@ def generate_docx_download(text: str) -> bytes:
 if audio:
     with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
         try:
+            st.session_state.mute_voice = False  # Új beszéd indításakor feloldjuk a némítást
             whisper_model = load_whisper_model()
             segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
             transcribed_text = "".join([s.text for s in segments]).strip()
@@ -521,8 +529,9 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    audio_data = ai_engine.text_to_speech(content)
-                    if audio_data: st.audio(audio_data, format="audio/mp3")
+                    if not st.session_state.mute_voice:
+                        audio_data = ai_engine.text_to_speech(content)
+                        if audio_data: st.audio(audio_data, format="audio/mp3")
 
                     st.markdown('<div class="action-row">', unsafe_allow_html=True)
                     inject_copy_button(content, f"h_{idx}")
@@ -538,6 +547,7 @@ with tab_chat:
         st.session_state.voice_text = ""
 
     if user_input:
+        st.session_state.mute_voice = False  # Új interakciónál visszaállítjuk a hangot
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input)
@@ -585,7 +595,7 @@ with tab_chat:
                     elif route == "WEB": status_placeholder.markdown('<div class="agent-status status-web">🌐 <b>Webes keresés bevonva</b></div>', unsafe_allow_html=True)
                     
                     st.write("📋 2. Részfeladatok és belső terv generálása...")
-                    steps = ["Kontextus elemzése", "Információk szintetizálása és szűrése", "Végső válasz megfogalmazása"]
+                    steps = ["Kontextus elemzése", "Információk szintetizálása és szűrése", "Önkorrekciós hurok és ellenőrzés", "Végső válasz megfogalmazása"]
                     if GROQ_API_KEY:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -597,7 +607,7 @@ with tab_chat:
                             plan_text = plan_res.choices[0].message.content.strip()
                             parsed_steps = [s.strip().lstrip("0123456789.-*• ") for s in plan_text.split("\n") if s.strip()][:3]
                             if len(parsed_steps) >= 2:
-                                steps = parsed_steps
+                                steps = parsed_steps + ["Önkorrekció és validáció"]
                         except Exception:
                             pass
 
@@ -637,24 +647,54 @@ with tab_chat:
                     else:
                         msgs.append({"role": "user", "content": final_prompt})
 
-                    for idx, s in enumerate(steps):
+                    for idx, s in enumerate(steps[:-1]):
                         step_placeholders[idx].markdown(f"🔄 **Folyamatban:** {s}...")
-                        time.sleep(0.4)
+                        time.sleep(0.3)
                         step_placeholders[idx].markdown(f"✅ **Végrehajtva:** {s}")
 
-                    status.update(label="✅ Feladat sikeresen lebontva és előkészítve!", state="complete", expanded=False)
+                    status.update(label="⚙️ Nyers válasz generálása...", state="running", expanded=False)
 
                 raw_response = ""
                 for chunk in ai_engine.safe_ollama_chat_stream(active_model, msgs):
                     raw_response += chunk
-                    response_placeholder.markdown(raw_response + "▌")
-                ai_response = raw_response.strip()
+                
+                # --- 🧠 5. ÖNKORREKCIÓS ÉS REFLEXIÓS HUROK (Self-Correction Loop) ---
+                step_placeholders[-1].markdown(f"🔄 **Folyamatban:** {steps[-1]} (Kritikus felülvizsgálat)...")
+                try:
+                    if GROQ_API_KEY:
+                        client = Groq(api_key=GROQ_API_KEY)
+                        reflection_prompt = [
+                            {"role": "system", "content": "Te egy kritikus ellenőr és precíz szakértő vagy. Ellenőrizd az alábbi tervezett választ. Javítsd ki a hallucinációkat, formázási hibákat, ténybeli tévedéseket és logikai buktatókat, hogy tökéletesen válaszoljon a felhasználó kérésére. Csak a tiszta, javított végső választ küldd vissza extra magyarázatok és megjegyzések nélkül!"},
+                            {"role": "user", "content": f"Felhasználó kérése: {user_input}\n\nTervezett nyers válasz:\n{raw_response}"}
+                        ]
+                        ref_res = client.chat.completions.create(model=active_model, messages=reflection_prompt, timeout=20.0)
+                        ai_response = ref_res.choices[0].message.content.strip()
+                    else:
+                        ai_response = raw_response.strip()
+                except Exception:
+                    ai_response = raw_response.strip()
+
+                step_placeholders[-1].markdown(f"✅ **Végrehajtva:** {steps[-1]}")
+                status.update(label="✅ Válasz ellenőrizve és végrehajtva!", state="complete", expanded=False)
+
+                # Stream hatás szimulálása a javított válaszhoz
+                streamed_text = ""
+                for char in ai_response:
+                    streamed_text += char
+                    response_placeholder.markdown(streamed_text + "▌")
+                    time.sleep(0.002)
                 response_placeholder.markdown(ai_response)
+                
                 db_repo.log_message(active_chat_user, "assistant", ai_response)
                 
-                audio_data = ai_engine.text_to_speech(ai_response)
-                if audio_data:
-                    b64_audio = base64.b64encode(audio_data).decode("utf-8")
-                    st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
+                # --- 2. HANGALAPÚ MEGSZAKÍTÁS KEZELÉSE ---
+                if not st.session_state.mute_voice:
+                    audio_data = ai_engine.text_to_speech(ai_response)
+                    if audio_data:
+                        st.session_state.voice_playing = True
+                        b64_audio = base64.b64encode(audio_data).decode("utf-8")
+                        st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
                 
                 st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
+
+}
