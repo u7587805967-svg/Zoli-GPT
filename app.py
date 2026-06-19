@@ -16,7 +16,6 @@ import pandas as pd
 from dataclasses import dataclass
 from contextlib import contextmanager
 from streamlit_mic_recorder import mic_recorder
-from faster_whisper import WhisperModel
 from duckduckgo_search import DDGS
 from PIL import Image
 from pypdf import PdfReader
@@ -30,7 +29,8 @@ class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
-    PIXABAY_API_KEY: str = "56302786-02377baa984d7697c0b5cc4e1"
+    # --- 🔄 MÓDOSÍTÁS (3): BIZTONSÁGOS PIXABAY KULCS KEZELÉS ---
+    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
     MAX_HISTORY_CHARS: int = 4000
     RAG_SIMI_THRESHOLD: float = 0.25
     CHUNK_SIZE: int = 800
@@ -45,7 +45,7 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 # --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
-# --- 🔄 MODOSÍTÁS (4): GENERÁLÁSI ÁLLAPOT INICIALIZÁLÁSA ---
+# --- 🔄 MÓDOSÍTÁS (4): GENERÁLÁSI ÁLLAPOT INICIALIZÁLÁSA ---
 if "generating" not in st.session_state:
     st.session_state.generating = False
 
@@ -144,11 +144,6 @@ class DatabaseRepository:
             cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username,))
             c_count = cursor.fetchone()[0]
             return {"history": h_count, "docs": d_count, "chunks": c_count}
-
-# --- 🤖 OPTIMALIZÁLT WHISPER BETÖLTÉS ---
-@st.cache_resource
-def load_whisper_model():
-    return WhisperModel("base", device="cpu", compute_type="int8")
 
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
@@ -275,7 +270,6 @@ class AsyncAIEngine:
                 return result[0]
 
             async def generate_audio():
-                # "hu-HU-TamasNeural" a hivatalos magyar férfi hang
                 communicate = edge_tts.Communicate(clean_text[:1000], "hu-HU-TamasNeural")
                 audio_data = b""
                 async for chunk in communicate.stream():
@@ -486,16 +480,24 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
+# --- 🔄 MÓDOSÍTÁS (1): GROQ-ALAPÚ ULTRA-GYORS WHISPER HANGFELDOLGOZÁS ---
 if audio:
     with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
         try:
-            st.session_state.mute_voice = False  # Új beszéd indításakor feloldjuk a némítást
-            whisper_model = load_whisper_model()
-            segments, _ = whisper_model.transcribe(io.BytesIO(audio['bytes']), language="hu")
-            transcribed_text = "".join([s.text for s in segments]).strip()
-            if transcribed_text:
-                st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
-        except Exception as e: st.error(f"Whisper hiba: {e}")
+            st.session_state.mute_voice = False
+            if GROQ_API_KEY:
+                client = Groq(api_key=GROQ_API_KEY)
+                translation = client.audio.transcriptions.create(
+                    file=("audio.wav", audio['bytes']),
+                    model="whisper-large-v3-turbo",
+                    language="hu"
+                )
+                transcribed_text = translation.text.strip() if translation.text else ""
+                if transcribed_text:
+                    st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+            else:
+                st.error("Groq API kulcs hiányzik a hangfeldolgozáshoz!")
+        except Exception as e: st.error(f"Groq Whisper hiba: {e}")
 
 # --- 📑 INTERFACE TABS ---
 tabs_headers = ["💬 Chat", "📊 Személyes Statisztika"]
@@ -604,6 +606,8 @@ with tab_chat:
                     if "keresd" in user_input.lower() or "web" in user_input.lower(): route = "WEB"
                     elif doc_ctx: route = "DOCUMENT"
                     
+                    # --- 🔄 MÓDOSÍTÁS (2): VALÓDI ESEMÉNYHEZ KÖTÖTT STÁTUSZOK (Keresés indítása) ---
+                    st.write("🛰️ Környezeti adatok lekérdezése folyamatban...")
                     web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
                     
                     vision_image = st.session_state.get("active_vision_image", None)
@@ -633,7 +637,11 @@ with tab_chat:
                     step_placeholders = []
                     for idx, s in enumerate(steps):
                         step_placeholders.append(st.empty())
-                        step_placeholders[idx].markdown(f"⏳ *Várakozik:* {s}")
+                        # --- 🔄 MÓDOSÍTÁS (2): VALÓDI STÁTUSZJELZÉS FIX KÉSLELTETÉSEK NÉLKÜL ---
+                        if idx < len(steps) - 1:
+                            step_placeholders[idx].markdown(f"✅ **Végrehajtva:** {s}")
+                        else:
+                            step_placeholders[idx].markdown(f"⏳ *Várakozik:* {s}")
 
                     now = datetime.datetime.now(pytz.timezone(cfg.TIMEZONE))
                     time_ctx = f"Aktuális pontos idő és dátum: {now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})."
@@ -666,18 +674,13 @@ with tab_chat:
                     else:
                         msgs.append({"role": "user", "content": final_prompt})
 
-                    for idx, s in enumerate(steps[:-1]):
-                        step_placeholders[idx].markdown(f"🔄 **Folyamatban:** {s}...")
-                        time.sleep(0.3)
-                        step_placeholders[idx].markdown(f"✅ **Végrehajtva:** {s}")
-
                     status.update(label="⚙️ Nyers válasz generálása...", state="running", expanded=False)
 
                 raw_response = ""
                 for chunk in ai_engine.safe_ollama_chat_stream(active_model, msgs):
                     raw_response += chunk
                 
-                # --- 🧠 5. ÖNKORREKCIÓS ÉS REFLEXIÓS HUROK (Self-Correction Loop) ---
+                # --- 🧠 5. ÖNKORREKCIÓS ÉS REFLEXIÓS HUROK ---
                 step_placeholders[-1].markdown(f"🔄 **Folyamatban:** {steps[-1]} (Kritikus felülvizsgálat)...")
                 try:
                     if GROQ_API_KEY:
