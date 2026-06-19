@@ -29,7 +29,6 @@ class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
-    # --- 🔄 MÓDOSÍTÁS (3): BIZTONSÁGOS PIXABAY KULCS KEZELÉS ---
     PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
     MAX_HISTORY_CHARS: int = 4000
     RAG_SIMI_THRESHOLD: float = 0.25
@@ -45,17 +44,47 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 # --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
-# --- 🔄 MÓDOSÍTÁS (4): GENERÁLÁSI ÁLLAPOT INICIALIZÁLÁSA ---
 if "generating" not in st.session_state:
     st.session_state.generating = False
 
-# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS ---
-query_params = st.query_params
-url_user = query_params.get("user", "vendeg").lower().strip()
+# --- 🔄 MÓDOSÍTÁS: BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = None
 
-# --- 🛡️ ADMINISZTRÁCIÓS LOGIKA (KISBETŰ-FÜGGETLEN) ---
-is_admin = (url_user == cfg.ADMIN_USERNAME.lower().strip())
-active_chat_user = url_user 
+# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
+if not st.session_state.logged_in_user:
+    query_params = st.query_params
+    url_user = query_params.get("user", "").lower().strip()
+    if url_user:
+        st.session_state.logged_in_user = url_user
+
+# --- 🔄 MÓDOSÍTÁS: BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
+if not st.session_state.logged_in_user:
+    st.markdown("""
+        <style>
+        .stApp { background-color: #0d0f16; color: #f1f5f9; }
+        .login-box { background-color: #121520; padding: 30px; border-radius: 10px; border: 1px solid #1e293b; margin-top: 50px; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.title("🚭 Zoli GPT")
+    st.subheader("Bejelentkezés")
+    
+    with st.container():
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...")
+        if st.button("Belépés", type="primary", use_container_width=True):
+            if input_username.strip():
+                st.session_state.logged_in_user = input_username.lower().strip()
+                st.rerun()
+            else:
+                st.error("Kérlek, adj meg egy érvényes felhasználónevet!")
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+# Ha be van jelentkezve, a meglévő változó ezt az értéket kapja meg
+active_chat_user = st.session_state.logged_in_user
+is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
@@ -85,7 +114,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚭 Zoli GPT")
-st.caption(f"Bejelentkezve mint: **{url_user}**")
+st.caption(f"Bejelentkezve mint: **{active_chat_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
@@ -399,7 +428,6 @@ def get_clean_history(history, max_chars, text_model=None):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 🔄 MÓDOSÍTÁS (1): EXPANDER ADATOKHOZ ÉS ADMINHOZ ---
     if is_admin:
         st.markdown("---")
         with st.expander("👑 Adminisztrációs Panel", expanded=False):
@@ -407,7 +435,7 @@ with st.sidebar:
             if not all_users:
                 all_users = [cfg.ADMIN_USERNAME.lower()]
             
-            selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
+            selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(active_chat_user) if active_chat_user in all_users else 0)
             active_chat_user = selected_user
             st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
@@ -464,6 +492,13 @@ with st.sidebar:
                 st.session_state.voice_playing = False
                 st.rerun()
 
+    # --- 🔄 MÓDOSÍTÁS: KIJELENTKEZÉS GOMB A SIDEBAR ALJÁN ---
+    st.markdown("---")
+    if st.button("🚪 Kijelentkezés", use_container_width=True):
+        st.session_state.logged_in_user = None
+        st.query_params.clear()
+        st.rerun()
+
 chat_history = db_repo.fetch_history(active_chat_user)
 
 def inject_copy_button(text: str, unique_key: str):
@@ -480,7 +515,6 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
-# --- 🔄 MÓDOSÍTÁS (1): GROQ-ALAPÚ ULTRA-GYORS WHISPER HANGFELDOLGOZÁS ---
 if audio:
     with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
         try:
@@ -539,12 +573,10 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    # --- 🔄 MÓDOSÍTÁS (2): AUDIO CSAK A LEGUTOLSÓ ASSZISZTENS ÜZENETNÉL SZÓLAL MEG AUTOMATIKUSAN ---
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
 
-                    # --- 🔄 MÓDOSÍTÁS (5): MODERN, OSZLOPOS ACTION ROW ELRENDEZÉS ---
                     with st.container():
                         c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
                         with c1:
@@ -560,15 +592,14 @@ with tab_chat:
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
-    # --- 🔄 MÓDOSÍTÁS (4): CHAT INPUT INAKTIVÁLÁSA GENERÁLÁS KÖZBEN ---
     user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
 
     if user_input:
-        st.session_state.generating = True  # Állapot bekapcsolása
-        st.session_state.mute_voice = False  # Új interakciónál visszaállítjuk a hangot
+        st.session_state.generating = True
+        st.session_state.mute_voice = False
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input)
@@ -606,7 +637,6 @@ with tab_chat:
                     if "keresd" in user_input.lower() or "web" in user_input.lower(): route = "WEB"
                     elif doc_ctx: route = "DOCUMENT"
                     
-                    # --- 🔄 MÓDOSÍTÁS (2): VALÓDI ESEMÉNYHEZ KÖTÖTT STÁTUSZOK (Keresés indítása) ---
                     st.write("🛰️ Környezeti adatok lekérdezése folyamatban...")
                     web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
                     
@@ -637,7 +667,6 @@ with tab_chat:
                     step_placeholders = []
                     for idx, s in enumerate(steps):
                         step_placeholders.append(st.empty())
-                        # --- 🔄 MÓDOSÍTÁS (2): VALÓDI STÁTUSZJELZÉS FIX KÉSLELTETÉSEK NÉLKÜL ---
                         if idx < len(steps) - 1:
                             step_placeholders[idx].markdown(f"✅ **Végrehajtva:** {s}")
                         else:
@@ -680,13 +709,12 @@ with tab_chat:
                 for chunk in ai_engine.safe_ollama_chat_stream(active_model, msgs):
                     raw_response += chunk
                 
-                # --- 🧠 5. ÖNKORREKCIÓS ÉS REFLEXIÓS HUROK ---
                 step_placeholders[-1].markdown(f"🔄 **Folyamatban:** {steps[-1]} (Kritikus felülvizsgálat)...")
                 try:
                     if GROQ_API_KEY:
                         client = Groq(api_key=GROQ_API_KEY)
                         reflection_prompt = [
-                            {"role": "system", "content": "Te egy kritikus ellenőr és precíz szakértő vagy. Ellenőrizd az alábbi tervezett választ. Javítsd ki a hallucinációkat, formázási hibákat, ténybeli tévedéseket és logikai buktatókat, hogy tökéletesen válaszoljon a felhasználó kérésére. Csak a tiszta, javított végső választ küldd vissza extra magyarázatok és megjegyzések nélkül!"},
+                            {"role": "system", "content": "Te egy kritikus ellenőr és precíz szakértő vagy. Ellenőrizd az alábbi tervezett választ. Javítsd ki a hallucinációkat, formázási hibákat, ténybeli tévedéseket és logikai buktatókat, hogy tökiemelkedően válaszoljon a felhasználó kérésére. Csak a tiszta, javított végső választ küldd vissza extra magyarázatok és megjegyzések nélkül!"},
                             {"role": "user", "content": f"Felhasználó kérése: {user_input}\n\nTervezett nyers válasz:\n{raw_response}"}
                         ]
                         ref_res = client.chat.completions.create(model=active_model, messages=reflection_prompt, timeout=20.0)
@@ -699,7 +727,6 @@ with tab_chat:
                 step_placeholders[-1].markdown(f"✅ **Végrehajtva:** {steps[-1]}")
                 status.update(label="✅ Válasz ellenőrizve és végrehajtva!", state="complete", expanded=False)
 
-                # Stream hatás szimulálása a javított válaszhoz
                 streamed_text = ""
                 for char in ai_response:
                     streamed_text += char
@@ -709,7 +736,6 @@ with tab_chat:
                 
                 db_repo.log_message(active_chat_user, "assistant", ai_response)
                 
-                # --- 2. HANGALAPÚ MEGSZAKÍTÁS KEZELÉSE ---
                 if not st.session_state.mute_voice:
                     audio_data = ai_engine.text_to_speech(ai_response)
                     if audio_data:
@@ -719,5 +745,5 @@ with tab_chat:
                 
                 st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
         
-        st.session_state.generating = False  # Állapot kikapcsolása
-        st.rerun()  # Kényszerített frissítés az input mező feloldásához
+        st.session_state.generating = False
+        st.rerun()
