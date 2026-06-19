@@ -47,7 +47,7 @@ cfg = AppConfig()
 if "generating" not in st.session_state:
     st.session_state.generating = False
 
-# --- 🔄 MÓDOSÍTÁS: BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
+# --- BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
@@ -58,7 +58,7 @@ if not st.session_state.logged_in_user:
     if url_user:
         st.session_state.logged_in_user = url_user
 
-# --- 🔄 MÓDOSÍTÁS: BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
+# --- BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
 if not st.session_state.logged_in_user:
     st.markdown("""
         <style>
@@ -82,7 +82,7 @@ if not st.session_state.logged_in_user:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# Ha be van jelentkezve, a meglévő változó ezt az értéket kapja meg
+# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
@@ -114,7 +114,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚭 Zoli GPT")
-st.caption(f"Bejelentkezve mint: **{active_chat_user}**")
+st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
@@ -278,7 +278,6 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
-        """Szövegfelolvasás (TTS) generálása Edge TTS (Microsoft) segítségével, férfi hangon"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -428,15 +427,31 @@ def get_clean_history(history, max_chars, text_model=None):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
+    # --- 🔄 MÓDOSÍTÁS: TÉNYLEGES ADMIN VÁLASZTÁS ÉS FRISSÍTÉS ---
     if is_admin:
         st.markdown("---")
         with st.expander("👑 Adminisztrációs Panel", expanded=False):
             all_users = db_repo.get_all_users()
-            if not all_users:
-                all_users = [cfg.ADMIN_USERNAME.lower()]
+            # Biztosítjuk, hogy a bejelentkezett admin és az eddigi nevek is bent legyenek a listában
+            if st.session_state.logged_in_user not in all_users:
+                all_users.append(st.session_state.logged_in_user)
             
-            selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(active_chat_user) if active_chat_user in all_users else 0)
-            active_chat_user = selected_user
+            # Ha még nincs kiválasztott admin-megtekintés a session_state-ben, alapértelmezzük
+            if "admin_selected_user" not in st.session_state:
+                st.session_state.admin_selected_user = st.session_state.logged_in_user
+
+            selected_user = st.selectbox(
+                "Felhasználó Chat megtekintése:", 
+                all_users, 
+                index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
+            )
+            
+            # Ha a listában átváltjuk a felhasználót, frissítjük a session_state-et és újratöltünk
+            if selected_user != st.session_state.admin_selected_user:
+                st.session_state.admin_selected_user = selected_user
+                st.rerun()
+                
+            active_chat_user = st.session_state.admin_selected_user
             st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
 
@@ -492,13 +507,15 @@ with st.sidebar:
                 st.session_state.voice_playing = False
                 st.rerun()
 
-    # --- 🔄 MÓDOSÍTÁS: KIJELENTKEZÉS GOMB A SIDEBAR ALJÁN ---
     st.markdown("---")
     if st.button("🚪 Kijelentkezés", use_container_width=True):
         st.session_state.logged_in_user = None
+        if "admin_selected_user" in st.session_state:
+            del st.session_state.admin_selected_user
         st.query_params.clear()
         st.rerun()
 
+# --- 🔄 MÓDOSÍTÁS: A TÖRTÉNET LEKÉRDEZÉSE KÖZVETLENÜL AZ AKTÍV FELHASZNÁLÓ MEGHATÁROZÁSA UTÁN TÖRTÉNIK ---
 chat_history = db_repo.fetch_history(active_chat_user)
 
 def inject_copy_button(text: str, unique_key: str):
