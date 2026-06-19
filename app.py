@@ -45,6 +45,10 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 # --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
+# --- 🔄 MODOSÍTÁS (4): GENERÁLÁSI ÁLLAPOT INICIALIZÁLÁSA ---
+if "generating" not in st.session_state:
+    st.session_state.generating = False
+
 # --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS ---
 query_params = st.query_params
 url_user = query_params.get("user", "vendeg").lower().strip()
@@ -401,66 +405,70 @@ def get_clean_history(history, max_chars, text_model=None):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
+    # --- 🔄 MÓDOSÍTÁS (1): EXPANDER ADATOKHOZ ÉS ADMINHOZ ---
     if is_admin:
         st.markdown("---")
-        st.subheader("👑 Adminisztrációs Panel")
-        all_users = db_repo.get_all_users()
-        if not all_users:
-            all_users = [cfg.ADMIN_USERNAME.lower()]
-        
-        selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
-        active_chat_user = selected_user
-        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        with st.expander("👑 Adminisztrációs Panel", expanded=False):
+            all_users = db_repo.get_all_users()
+            if not all_users:
+                all_users = [cfg.ADMIN_USERNAME.lower()]
+            
+            selected_user = st.selectbox("Felhasználó Chat megtekintése:", all_users, index=all_users.index(url_user) if url_user in all_users else 0)
+            active_chat_user = selected_user
+            st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
 
-    st.subheader("📋 Rendszer Szerepkör Sablonok")
-    persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
-    persona_prompts = {
-        "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
-        "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
-        "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
-        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
-    }    
-    st.subheader("🤖 AI Modellek")
-    models = ai_engine.get_available_models()
-    TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
+    with st.expander("🤖 AI Modell Beállítások", expanded=True):
+        st.subheader("📋 Rendszer Szerepkör Sablonok")
+        persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
+        persona_prompts = {
+            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
+            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
+            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
+            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
+        }    
+        st.subheader("🤖 AI Modellek")
+        models = ai_engine.get_available_models()
+        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
     
-    st.subheader("📂 Fájlok és Képek Feltöltése")
-    uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
-    if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
-        ext = uploaded_file.name.split(".")[-1].lower()
-        content = ""
-        size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+    with st.expander("📂 Média és Dokumentumok", expanded=False):
+        st.subheader("📂 Fájlok és Képek Feltöltése")
+        uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
+        if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
+            ext = uploaded_file.name.split(".")[-1].lower()
+            content = ""
+            size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+            
+            if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
+            elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
+            elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
+            elif ext in ["csv", "xlsx"]:
+                try:
+                    df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
+                    st.session_state.last_df = df
+                    content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
+                    st.sidebar.dataframe(df.head(3))
+                except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
+            elif ext in ["png", "jpg", "jpeg"]:
+                st.session_state.active_vision_image = uploaded_file.getvalue()
+                st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
+                st.session_state[f"idx_{uploaded_file.name}"] = True
+                st.sidebar.success("Kép sikeresen betöltve!")
+
+            if content:
+                ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
+                st.session_state[f"idx_{uploaded_file.name}"] = True
+                st.sidebar.success(f"✅ Mentve ({size_kb})")
+
+    with st.expander("🎙️ Hangvezérlés", expanded=False):
+        st.subheader("🎙️ Hang rögzítése")
+        audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
-        if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
-        elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
-        elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
-        elif ext in ["csv", "xlsx"]:
-            try:
-                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
-                st.session_state.last_df = df
-                content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
-                st.sidebar.dataframe(df.head(3))
-            except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
-        elif ext in ["png", "jpg", "jpeg"]:
-            st.session_state.active_vision_image = uploaded_file.getvalue()
-            st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
-            st.session_state[f"idx_{uploaded_file.name}"] = True
-            st.sidebar.success("Kép sikeresen betöltve!")
-
-        if content:
-            ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
-            st.session_state[f"idx_{uploaded_file.name}"] = True
-            st.sidebar.success(f"✅ Mentve ({size_kb})")
-
-    st.subheader("🎙️ Hang rögzítése")
-    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
-    
-    if st.session_state.get("voice_playing", False):
-        if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
-            st.session_state.mute_voice = True
-            st.session_state.voice_playing = False
-            st.rerun()
+        if st.session_state.get("voice_playing", False):
+            if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
+                st.session_state.mute_voice = True
+                st.session_state.voice_playing = False
+                st.rerun()
 
 chat_history = db_repo.fetch_history(active_chat_user)
 
@@ -529,24 +537,35 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    if not st.session_state.mute_voice:
+                    # --- 🔄 MÓDOSÍTÁS (2): AUDIO CSAK A LEGUTOLSÓ ASSZISZTENS ÜZENETNÉL SZÓLAL MEG AUTOMATIKUSAN ---
+                    if not st.session_state.mute_voice and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
 
-                    st.markdown('<div class="action-row">', unsafe_allow_html=True)
-                    inject_copy_button(content, f"h_{idx}")
-                    st.download_button("📄 Mentés Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}")
-                    if st.button("🇬🇧 Fordítás", key=f"trans_{idx}"): st.info(ai_engine.post_process_text(content, TEXT_MODEL, "translate"))
-                    if st.button("📝 Kivonat", key=f"sum_{idx}"): st.info(ai_engine.post_process_text(content, TEXT_MODEL, "summary"))
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    # --- 🔄 MÓDOSÍTÁS (5): MODERN, OSZLOPOS ACTION ROW ELRENDEZÉS ---
+                    with st.container():
+                        c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
+                        with c1:
+                            inject_copy_button(content, f"h_{idx}")
+                        with c2:
+                            st.download_button("📄 Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}", use_container_width=True)
+                        with c3:
+                            if st.button("🇬🇧 En", key=f"trans_{idx}", use_container_width=True): 
+                                st.toast(f"🔤 **Fordítás:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'translate')}", icon="🇬🇧")
+                        with c4:
+                            if st.button("📝 Össz", key=f"sum_{idx}", use_container_width=True): 
+                                st.toast(f"📝 **Összefoglaló:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'summary')}", icon="📝")
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
-    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field")
+    
+    # --- 🔄 MÓDOSÍTÁS (4): CHAT INPUT INAKTIVÁLÁSA GENERÁLÁS KÖZBEN ---
+    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
 
     if user_input:
+        st.session_state.generating = True  # Állapot bekapcsolása
         st.session_state.mute_voice = False  # Új interakciónál visszaállítjuk a hangot
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
@@ -696,4 +715,6 @@ with tab_chat:
                         st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
                 
                 st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
-
+        
+        st.session_state.generating = False  # Állapot kikapcsolása
+        st.rerun()  # Kényszerített frissítés az input mező feloldásához
