@@ -697,4 +697,3 @@ with tab_chat:
                 
                 st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
 
-}
