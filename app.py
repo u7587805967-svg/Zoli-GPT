@@ -630,4 +630,4 @@ with tab_chat:
                         st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                         db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
             elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
-                with st.spinner("🎬 AI Videógenerálás..."):
+                with st.spinner("🎬 AI Videógenerálás...")
