@@ -362,7 +362,7 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-    # --- 🎛️ NEW: INTELLIGENS SZÁNDÉK-ÚTVONALVÁLASZTÓ ---
+    # --- 🎛️ INTELLIGENS SZÁNDÉK-ÚTVONALVÁLASZTÓ ---
     def route_intent(self, user_input: str) -> str:
         """Groq LLM segítségével meghatározza a felhasználó valódi szándékát."""
         if not GROQ_API_KEY:
@@ -398,7 +398,7 @@ class AsyncAIEngine:
         except Exception:
             return "CHAT"
 
-    # --- 🌐 NEW: INTELLIGENS WEBOLDAL-SCRAPER ---
+    # --- 🌐 INTELLIGENS WEBOLDAL-SCRAPER ---
     def extract_and_scrape_urls(self, text: str) -> tuple:
         """Kiszűri az URL-eket, letölti és megtisztítja a tartalmukat kontextusnak."""
         url_pattern = r'(https?://\S+)'
@@ -426,6 +426,57 @@ class AsyncAIEngine:
                 scraped_context = f"\n[HIBA A WEBOLDAL BEOLVASÁSAKOR]: {str(e)}\n"
                 
         return cleaned_text, scraped_context
+
+    # --- 🪄 NEW: PROMPT-TÖKÉLETESÍTŐ ---
+    def perfect_prompt(self, user_input: str) -> str:
+        if not GROQ_API_KEY:
+            return user_input
+        system_prompt = (
+            "Te egy professzionális prompt mérnök vagy. A feladatod, hogy a felhasználó által megadott "
+            "egyszerű, rövid kérést (promptot) kibővítsd, pontosítsd és tökéletesítsd, hogy a nagy nyelvi modell "
+            "vagy képgeneráló a lehető legjobb minőségű választ adja. Tartsd meg az eredeti szándékot és nyelvet (magyar). "
+            "Csak a tökéletesített, kibővített promptot küldd vissza, mindenféle magyarázat, bevezetés vagy idézőjel nélkül!"
+        )
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(
+                model="llama-3.2-3b-preview",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.7,
+                timeout=5.0
+            )
+            return res.choices[0].message.content.strip()
+        except Exception:
+            return user_input
+
+    # --- 🔄 NEW: ÖNJAVÍTÓ ELLENŐRZŐ ---
+    def self_correct_response(self, prompt: str, response: str, text_model: str) -> str:
+        if not GROQ_API_KEY:
+            return response
+        system_prompt = (
+            "Te egy szigorú minőségbiztosítási ellenőr és szakértő korrektor vagy. Feladatod a kapott AI válasz ellenőrzése. "
+            "Keresd meg a logikai hibákat, tárgyi tévedéseket, hiányzó kód importokat vagy durva helyesírási hibákat. "
+            "Ha találsz hibát, javítsd ki a választ, és kizárólag a tökéletesített, javított verziót küldd vissza. "
+            "Ha a válasz teljesen hibátlan és tökéletes, küldd vissza pontosan ugyanazt a szöveget változtatás nélkül. "
+            "Ne írj magyarázatot, se megjegyzést, csak a végleges választ!"
+        )
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(
+                model=text_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Eredeti kérés: {prompt}\n\nGenerált válasz:\n{response}"}
+                ],
+                temperature=0.2,
+                timeout=25.0
+            )
+            return res.choices[0].message.content.strip()
+        except Exception:
+            return response
 
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 db_repo = DatabaseRepository(cfg.DB_FILE)
@@ -489,6 +540,12 @@ with st.sidebar:
     models = ai_engine.get_available_models()
     TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
     
+    st.markdown("---")
+    st.subheader("🧠 Intelligens Funkciók")
+    prompt_perfector_active = st.checkbox("🪄 Prompt-Tökéletesítő", value=False, help="Automatikusan kibővíti és professzionálissá teszi a promptodat a háttérben.")
+    self_correct_active = st.checkbox("🔄 Önjavító ellenőrzés", value=False, help="A válasz kiírása után ellenőrzi a logikát és a kódokat, szükség esetén javítja.")
+    
+    st.markdown("---")
     st.subheader("📂 Fájlok és Képek Feltöltése")
     uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
     if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
@@ -610,26 +667,32 @@ with tab_chat:
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input)
 
+        # --- 🪄 PROMPT-TÖKÉLETESÍTŐ ALAPÚ ELŐFELDOLGOZÁS ---
+        active_ai_prompt = user_input
+        if prompt_perfector_active:
+            with st.spinner("🪄 Prompt tökéletesítése folyamatban..."):
+                active_ai_prompt = ai_engine.perfect_prompt(user_input)
+
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
             # --- 🎛️ AI ALAPÚ SZÁNDÉK DETEKTÁLÁS ---
-            intent = ai_engine.route_intent(user_input)
+            intent = ai_engine.route_intent(active_ai_prompt)
             
-            if intent == "IMAGE" and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
+            if intent == "IMAGE" and not any(w in active_ai_prompt.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
                 with st.spinner("🎨 AI Képgenerálás..."):
-                    url = ai_engine.generate_image(user_input, TEXT_MODEL)
+                    url = ai_engine.generate_image(active_ai_prompt, TEXT_MODEL)
                     if url:
                         st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                         db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
             elif intent == "VIDEO":
                 with st.spinner("🎬 AI Videógenerálás..."):
-                    video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
+                    video_url = ai_engine.generate_video(active_ai_prompt, TEXT_MODEL)
                     if video_url:
                         st.video(video_url)
                         db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
-            elif any(w in user_input.lower() for w in ["grafikon", "diagram", "ábrázold", "diagramot"]) and st.session_state.get("last_df") is not None:
+            elif any(w in active_ai_prompt.lower() for w in ["grafikon", "diagram", "ábrázold", "diagramot"]) and st.session_state.get("last_df") is not None:
                 with st.spinner("📊 Grafikon generálása..."):
                     df = st.session_state.get("last_df")
                     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -639,7 +702,7 @@ with tab_chat:
                     else: st.warning("Nem találtam számszerű oszlopot a grafikonhoz.")
             else:
                 with st.spinner("Gondolkodom..."):
-                    chunks = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
+                    chunks = ai_engine.query_vector_db_with_metadata(active_ai_prompt, active_chat_user, TEXT_MODEL)
                     doc_ctx = "\n".join([c["text"] for c in chunks]) if chunks else ""
                     
                     # Dinamikus útvonalválasztás az intent alapján
@@ -647,7 +710,7 @@ with tab_chat:
                     elif intent == "WEB": route = "WEB"
                     else: route = "GENERAL"
                     
-                    web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
+                    web_ctx = ai_engine.search_web_sync(active_ai_prompt) if route == "WEB" else ""
                     
                     vision_image = st.session_state.get("active_vision_image", None)
                     active_model = "llama-3.2-11b-vision-preview" if vision_image else TEXT_MODEL
@@ -670,35 +733,35 @@ with tab_chat:
                     for h in clean_hist:
                         msgs.append({"role": h["role"], "content": h["content"]})
                         
-                    # --- 👥 NEW: MULTI-AGENT VITA MÓD PROMPT GENERÁLÁS ---
+                    # --- 👥 MULTI-AGENT VITA MÓD PROMPT GENERÁLÁS ---
                     if persona == "Zoli Vita Mód":
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
                             # Optimista ágens hívása
-                            opt_prompt = f"Te egy végtelenül optimista, innovatív és támogató üzleti tanácsadó vagy. Gyűjts előnyöket, pozitívumokat és lehetőségeket a következő felvetésre: {user_input}"
+                            opt_prompt = f"Te egy végtelenül optimista, innovatív és támogató üzleti tanácsadó vagy. Gyűjts előnyöket, pozitívumokat és lehetőségeket a következő felvetésre: {active_ai_prompt}"
                             res_opt = client.chat.completions.create(model=TEXT_MODEL, messages=[{"role": "user", "content": opt_prompt}], timeout=20.0)
                             optimist_view = res_opt.choices[0].message.content
                             
                             # Szkeptikus ágens hívása
-                            szkep_prompt = f"Te egy rendkívül kritikus, óvatos, kockázatkerülő pénzügyi és jogi ellenőr vagy. Keresd meg az összes buktatót, rejtett költséget és veszélyt az alábbi ötletben és az optimista megközelítésben.\nAlapötlet: {user_input}\nOptimista érv: {optimist_view}"
+                            szkep_prompt = f"Te egy rendkívül kritikus, óvatos, kockázatkerülő pénzügyi és jogi ellenőr vagy. Keresd meg az összes buktatót, rejtett költséget és veszélyt az alábbi ötletben és az optimista megközelítésben.\nAlapötlet: {active_ai_prompt}\nOptimista érv: {optimist_view}"
                             res_szkep = client.chat.completions.create(model=TEXT_MODEL, messages=[{"role": "user", "content": szkep_prompt}], timeout=20.0)
                             skeptic_view = res_szkep.choices[0].message.content
                             
                             final_prompt = (
                                 f"Te vagy Zoli, a bölcs moderátor és döntéshozó. Hallgasd meg a két szakértőd vitáját, mérlegeld az érveiket, és készíts egy zseniális, kiegyensúlyozott összefoglalót a felhasználónak.\n\n"
-                                f"**A felvetés:** {user_input}\n\n"
+                                f"**A felvetés:** {active_ai_prompt}\n\n"
                                 f"**Optimista érvek:**\n{optimist_view}\n\n"
                                 f"**Szkeptikus ellenérvek:**\n{skeptic_view}\n\n"
                                 f"Kérlek struktúráld a válaszod: 1. Pozitív lehetőségek, 2. Kritikus kockázatok, 3. Végső javaslat/Akcióterv."
                             )
                         except Exception as e:
-                            final_prompt = f"Hiba a több-ágenses vita során: {e}\n\nEredeti kérdés: {user_input}"
+                            final_prompt = f"Hiba a több-ágenses vita során: {e}\n\nEredeti kérdés: {active_ai_prompt}"
                     else:
                         final_prompt = ""
                         if route == "DOCUMENT" and doc_ctx: final_prompt += f"[DOKUMENTUM TUDÁS]:\n{doc_ctx}\n\n"
                         elif route == "WEB" and web_ctx: final_prompt += f"[WEBES TÉNYEK]:\n{web_ctx}\n\n"
                         if web_page_ctx: final_prompt += web_page_ctx
-                        final_prompt += user_input
+                        final_prompt += active_ai_prompt
                     
                     if vision_image:
                         b64_img = base64.b64encode(vision_image).decode("utf-8")
@@ -718,6 +781,12 @@ with tab_chat:
                         raw_response += chunk
                         response_placeholder.markdown(raw_response + "▌")
                     ai_response = raw_response.strip()
+                    
+                    # --- 🔄 NEW: ÖNJAVÍTÓ ELLENŐRZŐ INTEGRÁCIÓ ---
+                    if self_correct_active:
+                        status_placeholder.markdown('<div class="agent-status status-gen">🔄 <b>Önjavító kód- és szövegellenőrzés...</b></div>', unsafe_allow_html=True)
+                        ai_response = ai_engine.self_correct_response(final_prompt, ai_response, active_model)
+                    
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
                     
