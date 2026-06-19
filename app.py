@@ -56,11 +56,7 @@ if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
     if url_user:
-        # --- 🔄 MÓDOSÍTÁS: Ha az URL-ben 'szemelyes' van, kapja meg a fix admin nevet ---
-        if url_user == "szemelyes":
-            st.session_state.logged_in_user = cfg.ADMIN_USERNAME.lower().strip()
-        else:
-            st.session_state.logged_in_user = url_user
+        st.session_state.logged_in_user = url_user
 
 # --- BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
 if not st.session_state.logged_in_user:
@@ -80,11 +76,7 @@ if not st.session_state.logged_in_user:
         if st.button("Belépés", type="primary", use_container_width=True):
             cleaned_input = input_username.lower().strip()
             if cleaned_input:
-                # --- 🔄 MÓDOSÍTÁS: Ha a 'szemelyes' szót írják be, a fix admin fiókba lép be ---
-                if cleaned_input == "szemelyes":
-                    st.session_state.logged_in_user = cfg.ADMIN_USERNAME.lower().strip()
-                else:
-                    st.session_state.logged_in_user = cleaned_input
+                st.session_state.logged_in_user = cleaned_input
                 st.rerun()
             else:
                 st.error("Kérlek, adj meg egy érvényes felhasználónevet!")
@@ -93,6 +85,8 @@ if not st.session_state.logged_in_user:
 
 # Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
+
+# --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
@@ -576,7 +570,7 @@ with tab_monitor:
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
-        st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {cfg.ADMIN_USERNAME}")
+        st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
 
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
@@ -637,134 +631,3 @@ with tab_chat:
                         db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
             elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
                 with st.spinner("🎬 AI Videógenerálás..."):
-                    video_url = ai_engine.generate_video(user_input, TEXT_MODEL)
-                    if video_url:
-                        st.video(video_url)
-                        db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
-            elif any(w in user_input.lower() for w in ["grafikon", "diagram", "ábrázold", "diagramot"]) and st.session_state.get("last_df") is not None:
-                with st.spinner("📊 Grafikon generálása..."):
-                    df = st.session_state.get("last_df")
-                    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-                    if num_cols:
-                        st.line_chart(df[num_cols[:3]])
-                        db_repo.log_message(active_chat_user, "assistant", f"[Automatikus grafikon kirajzolva az oszlopokból: {', '.join(num_cols[:3])}]")
-                    else: st.warning("Nem találtam számszerű oszlopot a grafikonhoz.")
-            else:
-                with st.status("🛠️ Többlépéses Feladatlebontás...", expanded=True) as status:
-                    st.write("🔍 1. Keresési útvonal és kontextus meghatározása...")
-                    chunks = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
-                    doc_ctx = "\n".join([c["text"] for c in chunks]) if chunks else ""
-                    route = "GENERAL"
-                    if "keresd" in user_input.lower() or "web" in user_input.lower(): route = "WEB"
-                    elif doc_ctx: route = "DOCUMENT"
-                    
-                    st.write("🛰️ Környezeti adatok lekérdezése folyamatban...")
-                    web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
-                    
-                    vision_image = st.session_state.get("active_vision_image", None)
-                    active_model = "llama-3.2-11b-vision-preview" if vision_image else TEXT_MODEL
-                    
-                    if vision_image: status_placeholder.markdown('<div class="agent-status status-gen">👁️ <b>Vizuális képelemzés aktív</b></div>', unsafe_allow_html=True)
-                    elif route == "DOCUMENT": status_placeholder.markdown('<div class="agent-status status-rag">🔱 <b>Saját jegyzet bevonva</b></div>', unsafe_allow_html=True)
-                    elif route == "WEB": status_placeholder.markdown('<div class="agent-status status-web">🌐 <b>Webes keresés bevonva</b></div>', unsafe_allow_html=True)
-                    
-                    st.write("📋 2. Részfeladatok és belső terv generálása...")
-                    steps = ["Kontextus elemzése", "Információk szintetizálása és szűrése", "Önkorrekciós hurok és ellenőrzés", "Végső válasz megfogalmazása"]
-                    if GROQ_API_KEY:
-                        try:
-                            client = Groq(api_key=GROQ_API_KEY)
-                            plan_res = client.chat.completions.create(
-                                model=TEXT_MODEL,
-                                messages=[{"role": "user", "content": f"Bontsd fel a következő felhasználói kérést pontosan 3 logikus, rövid végrehajtási részfeladatra magyarul. Csak egy egyszerű felsorolást adj vissza, semmi mást! Kérés: {user_input}"}],
-                                timeout=10.0
-                            )
-                            plan_text = plan_res.choices[0].message.content.strip()
-                            parsed_steps = [s.strip().lstrip("0123456789.-*• ") for s in plan_text.split("\n") if s.strip()][:3]
-                            if len(parsed_steps) >= 2:
-                                steps = parsed_steps + ["Önkorrekció és validáció"]
-                        except Exception:
-                            pass
-
-                    step_placeholders = []
-                    for idx, s in enumerate(steps):
-                        step_placeholders.append(st.empty())
-                        if idx < len(steps) - 1:
-                            step_placeholders[idx].markdown(f"✅ **Végrehajtva:** {s}")
-                        else:
-                            step_placeholders[idx].markdown(f"⏳ *Várakozik:* {s}")
-
-                    now = datetime.datetime.now(pytz.timezone(cfg.TIMEZONE))
-                    time_ctx = f"Aktuális pontos idő és dátum: {now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})."
-                    sys_msg = f"{persona_prompts[persona]} Válaszolj magyarul. {time_ctx}"
-                    
-                    msgs = [{"role": "system", "content": sys_msg}]
-                    
-                    clean_hist, comp_mem = get_clean_history(chat_history, cfg.MAX_HISTORY_CHARS, TEXT_MODEL)
-                    if comp_mem:
-                        msgs.append({"role": "system", "content": f"[KORÁBBI MEMÓRIA SŰRÍTMÉNY]: {comp_mem}"})
-                        
-                    for h in clean_hist:
-                        msgs.append({"role": h["role"], "content": h["content"]})
-                        
-                    final_prompt = ""
-                    if route == "DOCUMENT" and doc_ctx: final_prompt += f"[DOKUMENTUM TUDÁS]:\n{doc_ctx}\n\n"
-                    elif route == "WEB" and web_ctx: final_prompt += f"[WEBES TÉNYEK]:\n{web_ctx}\n\n"
-                    final_prompt += user_input
-                    
-                    if vision_image:
-                        b64_img = base64.b64encode(vision_image).decode("utf-8")
-                        msgs.append({
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": final_prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
-                            ]
-                        })
-                        st.session_state.active_vision_image = None
-                    else:
-                        msgs.append({"role": "user", "content": final_prompt})
-
-                    status.update(label="⚙️ Nyers válasz generálása...", state="running", expanded=False)
-
-                raw_response = ""
-                for chunk in ai_engine.safe_ollama_chat_stream(active_model, msgs):
-                    raw_response += chunk
-                
-                step_placeholders[-1].markdown(f"🔄 **Folyamatban:** {steps[-1]} (Kritikus felülvizsgálat)...")
-                try:
-                    if GROQ_API_KEY:
-                        client = Groq(api_key=GROQ_API_KEY)
-                        reflection_prompt = [
-                            {"role": "system", "content": "Te egy kritikus ellenőr és precíz szakértő vagy. Ellenőrizd az alábbi tervezett választ. Javítsd ki a hallucinációkat, formázási hibákat, ténybeli tévedéseket és logikai buktatókat, hogy tökiemelkedően válaszoljon a felhasználó kérésére. Csak a tiszta, javított végső választ küldd vissza extra magyarázatok és megjegyzések nélkül!"},
-                            {"role": "user", "content": f"Felhasználó kérése: {user_input}\n\nTervezett nyers válasz:\n{raw_response}"}
-                        ]
-                        ref_res = client.chat.completions.create(model=active_model, messages=reflection_prompt, timeout=20.0)
-                        ai_response = ref_res.choices[0].message.content.strip()
-                    else:
-                        ai_response = raw_response.strip()
-                except Exception:
-                    ai_response = raw_response.strip()
-
-                step_placeholders[-1].markdown(f"✅ **Végrehajtva:** {steps[-1]}")
-                status.update(label="✅ Válasz ellenőrizve és végrehajtva!", state="complete", expanded=False)
-
-                streamed_text = ""
-                for char in ai_response:
-                    streamed_text += char
-                    response_placeholder.markdown(streamed_text + "▌")
-                    time.sleep(0.002)
-                response_placeholder.markdown(ai_response)
-                
-                db_repo.log_message(active_chat_user, "assistant", ai_response)
-                
-                if not st.session_state.mute_voice:
-                    audio_data = ai_engine.text_to_speech(ai_response)
-                    if audio_data:
-                        st.session_state.voice_playing = True
-                        b64_audio = base64.b64encode(audio_data).decode("utf-8")
-                        st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
-                
-                st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
-        
-        st.session_state.generating = False
-        st.rerun()
