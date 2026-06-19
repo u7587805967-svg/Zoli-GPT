@@ -154,7 +154,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
@@ -250,27 +250,64 @@ class AsyncAIEngine:
             yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
-        """Szövegfelolvasás (TTS) generálása gTTS (Google) segítségével, magyar nyelven"""
+        """Szövegfelolvasás (TTS) generálása Edge TTS (Microsoft) segítségével, férfi hangon"""
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
             clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
             if not clean_text: return None
             
-            from gtts import gTTS
-            tts = gTTS(text=clean_text[:1000], lang='hu', slow=False)
-            fp = io.BytesIO()
-            tts.write_to_fp(fp)
-            fp.seek(0)
-            return fp.read()
+            import edge_tts
+            import asyncio
+            import threading
+
+            def run_async(coro):
+                result = []
+                def run():
+                    result.append(asyncio.run(coro))
+                thread = threading.Thread(target=run)
+                thread.start()
+                thread.join()
+                return result[0]
+
+            async def generate_audio():
+                # "hu-HU-TamasNeural" a hivatalos magyar férfi hang
+                communicate = edge_tts.Communicate(clean_text[:1000], "hu-HU-TamasNeural")
+                audio_data = b""
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        audio_data += chunk["data"]
+                return audio_data
+
+            return run_async(generate_audio())
         except Exception:
             return None
 
     def search_web_sync(self, query: str) -> str:
+        all_results = []
         try:
             with DDGS() as ddgs:
-                return "\n---\n".join([f"Forrás: {r['title']}\nKivonat: {r['body']}" for r in ddgs.text(query, max_results=10)])
-        except Exception: return ""
+                res_text = ddgs.text(query, max_results=8)
+                if res_text:
+                    all_results.extend(res_text)
+                try:
+                    res_news = ddgs.news(query, max_results=5)
+                    if res_news:
+                        all_results.extend(res_news)
+                except Exception: pass
+        except Exception: pass
+            
+        if not all_results: return ""
+            
+        seen_urls = set()
+        unique_results = []
+        for r in all_results:
+            url_key = r.get('href') or r.get('url') or r.get('title', '')
+            if url_key not in seen_urls:
+                seen_urls.add(url_key)
+                unique_results.append(r)
+                
+        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
@@ -297,7 +334,6 @@ class AsyncAIEngine:
                 
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
-    # --- 🎬 ÚJ: VIDEÓGENERÁLÓ MEGHÍVÁS HOZZÁADVA ---
     def generate_video(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
@@ -333,11 +369,37 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 
+# ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
+def get_clean_history(history, max_chars, text_model=None):
+    truncated = []
+    old_messages = []
+    curr = 0
+    for h in reversed(history):
+        if h.get("type") == "text":
+            if curr + len(h["content"]) <= max_chars:
+                truncated.insert(0, {"role": h["role"], "content": h["content"]})
+                curr += len(h["content"])
+            else:
+                old_messages.insert(0, f"{h['role']}: {h['content']}")
+    
+    compressed = ""
+    if old_messages and text_model and GROQ_API_KEY:
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            old_txt = "\n".join(old_messages[-10:])
+            res = client.chat.completions.create(
+                model=text_model,
+                messages=[{"role": "user", "content": f"Készíts egy max 2-3 mondatos tömör összefoglalót az alábbi korábbi beszélgetésekből (preferenciák, fontos infók): \n\n{old_txt}"}],
+                timeout=5.0
+            )
+            compressed = res.choices[0].message.content.strip()
+        except Exception: pass
+    return truncated, compressed
+
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 👑 TITKOS ADMIN PANEL ---
     if is_admin:
         st.markdown("---")
         st.subheader("👑 Adminisztrációs Panel")
@@ -353,24 +415,38 @@ with st.sidebar:
     st.subheader("📋 Rendszer Szerepkör Sablonok")
     persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
     persona_prompts = {
-        "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli",
-        "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli",
-        "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli",
-        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli"
+        "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
+        "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
+        "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
+        "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
     }    
     st.subheader("🤖 AI Modellek")
     models = ai_engine.get_available_models()
     TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
     
-    st.subheader("📂 Fájlok Feltöltése")
-    uploaded_file = st.file_uploader("Privát dokumentum indexelés", type=["txt", "pdf", "docx"])
+    st.subheader("📂 Fájlok és Képek Feltöltése")
+    uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
     if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
         ext = uploaded_file.name.split(".")[-1].lower()
         content = ""
         size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+        
         if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
         elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
         elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
+        elif ext in ["csv", "xlsx"]:
+            try:
+                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
+                st.session_state.last_df = df
+                content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
+                st.sidebar.dataframe(df.head(3))
+            except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
+        elif ext in ["png", "jpg", "jpeg"]:
+            st.session_state.active_vision_image = uploaded_file.getvalue()
+            st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success("Kép sikeresen betöltve!")
+
         if content:
             ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
             st.session_state[f"idx_{uploaded_file.name}"] = True
@@ -380,16 +456,6 @@ with st.sidebar:
     audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
 
 chat_history = db_repo.fetch_history(active_chat_user)
-
-def get_clean_history(history, max_chars):
-    truncated = []
-    curr = 0
-    for h in reversed(history):
-        if h.get("type") == "text":
-            if curr + len(h["content"]) > max_chars: break
-            truncated.insert(0, {"role": h["role"], "content": h["content"]})
-            curr += len(h["content"])
-    return truncated
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
@@ -450,15 +516,13 @@ with tab_chat:
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
             if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
-            # --- ÚJ: HISTÓRIA VIDEÓ MEGJELENÍTÉSE ---
             elif msg.get("type") == "video": st.video(msg["content"])
             else:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
                     audio_data = ai_engine.text_to_speech(content)
-                    if audio_data:
-                        st.audio(audio_data, format="audio/mp3")
+                    if audio_data: st.audio(audio_data, format="audio/mp3")
 
                     st.markdown('<div class="action-row">', unsafe_allow_html=True)
                     inject_copy_button(content, f"h_{idx}")
@@ -482,8 +546,7 @@ with tab_chat:
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
-            # --- ÚJ: AZONNALI GENERÁLÁS ÉS MEGJELENÍTÉS CHAT KÖZBEN ---
-            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video"]):
+            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
                 with st.spinner("🎨 AI Képgenerálás..."):
                     url = ai_engine.generate_image(user_input, TEXT_MODEL)
                     if url:
@@ -495,6 +558,14 @@ with tab_chat:
                     if video_url:
                         st.video(video_url)
                         db_repo.log_message(active_chat_user, "assistant", video_url, "video", caption=user_input)
+            elif any(w in user_input.lower() for w in ["grafikon", "diagram", "ábrázold", "diagramot"]) and st.session_state.get("last_df") is not None:
+                with st.spinner("📊 Grafikon generálása..."):
+                    df = st.session_state.get("last_df")
+                    num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    if num_cols:
+                        st.line_chart(df[num_cols[:3]])
+                        db_repo.log_message(active_chat_user, "assistant", f"[Automatikus grafikon kirajzolva az oszlopokból: {', '.join(num_cols[:3])}]")
+                    else: st.warning("Nem találtam számszerű oszlopot a grafikonhoz.")
             else:
                 with st.spinner("Gondolkodom..."):
                     chunks = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
@@ -504,25 +575,56 @@ with tab_chat:
                     elif doc_ctx: route = "DOCUMENT"
                     
                     web_ctx = ai_engine.search_web_sync(user_input) if route == "WEB" else ""
-                    if route == "DOCUMENT": status_placeholder.markdown('<div class="agent-status status-rag">🔱 <b>Saját jegyzet bevonva</b></div>', unsafe_allow_html=True)
+                    
+                    vision_image = st.session_state.get("active_vision_image", None)
+                    active_model = "llama-3.2-11b-vision-preview" if vision_image else TEXT_MODEL
+                    
+                    if vision_image: status_placeholder.markdown('<div class="agent-status status-gen">👁️ <b>Vizuális képelemzés aktív</b></div>', unsafe_allow_html=True)
+                    elif route == "DOCUMENT": status_placeholder.markdown('<div class="agent-status status-rag">🔱 <b>Saját jegyzet bevonva</b></div>', unsafe_allow_html=True)
                     elif route == "WEB": status_placeholder.markdown('<div class="agent-status status-web">🌐 <b>Webes keresés bevonva</b></div>', unsafe_allow_html=True)
                     
-                    sys_msg = f"{persona_prompts[persona]} Válaszolj magyarul."
+                    now = datetime.datetime.now(pytz.timezone(cfg.TIMEZONE))
+                    time_ctx = f"Aktuális pontos idő és dátum: {now.strftime('%Y-%m-%d %H:%M:%S')} ({now.strftime('%A')})."
+                    sys_msg = f"{persona_prompts[persona]} Válaszolj magyarul. {time_ctx}"
+                    
                     msgs = [{"role": "system", "content": sys_msg}]
-                    for h in get_clean_history(chat_history, cfg.MAX_HISTORY_CHARS):
+                    
+                    clean_hist, comp_mem = get_clean_history(chat_history, cfg.MAX_HISTORY_CHARS, TEXT_MODEL)
+                    if comp_mem:
+                        msgs.append({"role": "system", "content": f"[KORÁBBI MEMÓRIA SŰRÍTMÉNY]: {comp_mem}"})
+                        
+                    for h in clean_hist:
                         msgs.append({"role": h["role"], "content": h["content"]})
+                        
                     final_prompt = ""
                     if route == "DOCUMENT" and doc_ctx: final_prompt += f"[DOKUMENTUM TUDÁS]:\n{doc_ctx}\n\n"
                     elif route == "WEB" and web_ctx: final_prompt += f"[WEBES TÉNYEK]:\n{web_ctx}\n\n"
                     final_prompt += user_input
-                    msgs.append({"role": "user", "content": final_prompt})
+                    
+                    if vision_image:
+                        b64_img = base64.b64encode(vision_image).decode("utf-8")
+                        msgs.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": final_prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
+                            ]
+                        })
+                        st.session_state.active_vision_image = None
+                    else:
+                        msgs.append({"role": "user", "content": final_prompt})
                     
                     raw_response = ""
-                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, msgs):
+                    for chunk in ai_engine.safe_ollama_chat_stream(active_model, msgs):
                         raw_response += chunk
                         response_placeholder.markdown(raw_response + "▌")
                     ai_response = raw_response.strip()
                     response_placeholder.markdown(ai_response)
                     db_repo.log_message(active_chat_user, "assistant", ai_response)
+                    
+                    audio_data = ai_engine.text_to_speech(ai_response)
+                    if audio_data:
+                        b64_audio = base64.b64encode(audio_data).decode("utf-8")
+                        st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
                     
                     st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
