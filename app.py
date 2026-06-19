@@ -658,4 +658,3 @@ with tab_chat:
                     st.markdown(f'<audio src="data:audio/mp3;base64,{b64_audio}" autoplay></audio>', unsafe_allow_html=True)
                 
                 st.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 99999);</script>")
-}
