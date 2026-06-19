@@ -56,7 +56,11 @@ if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
     if url_user:
-        st.session_state.logged_in_user = url_user
+        # --- 🔄 MÓDOSÍTÁS: Ha az URL-ben 'szemelyes' van, kapja meg a fix admin nevet ---
+        if url_user == "szemelyes":
+            st.session_state.logged_in_user = cfg.ADMIN_USERNAME.lower().strip()
+        else:
+            st.session_state.logged_in_user = url_user
 
 # --- BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
 if not st.session_state.logged_in_user:
@@ -74,8 +78,13 @@ if not st.session_state.logged_in_user:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
         input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...")
         if st.button("Belépés", type="primary", use_container_width=True):
-            if input_username.strip():
-                st.session_state.logged_in_user = input_username.lower().strip()
+            cleaned_input = input_username.lower().strip()
+            if cleaned_input:
+                # --- 🔄 MÓDOSÍTÁS: Ha a 'szemelyes' szót írják be, a fix admin fiókba lép be ---
+                if cleaned_input == "szemelyes":
+                    st.session_state.logged_in_user = cfg.ADMIN_USERNAME.lower().strip()
+                else:
+                    st.session_state.logged_in_user = cleaned_input
                 st.rerun()
             else:
                 st.error("Kérlek, adj meg egy érvényes felhasználónevet!")
@@ -427,16 +436,13 @@ def get_clean_history(history, max_chars, text_model=None):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 🔄 MÓDOSÍTÁS: TÉNYLEGES ADMIN VÁLASZTÁS ÉS FRISSÍTÉS ---
     if is_admin:
         st.markdown("---")
         with st.expander("👑 Adminisztrációs Panel", expanded=False):
             all_users = db_repo.get_all_users()
-            # Biztosítjuk, hogy a bejelentkezett admin és az eddigi nevek is bent legyenek a listában
             if st.session_state.logged_in_user not in all_users:
                 all_users.append(st.session_state.logged_in_user)
             
-            # Ha még nincs kiválasztott admin-megtekintés a session_state-ben, alapértelmezzük
             if "admin_selected_user" not in st.session_state:
                 st.session_state.admin_selected_user = st.session_state.logged_in_user
 
@@ -446,7 +452,6 @@ with st.sidebar:
                 index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
             )
             
-            # Ha a listában átváltjuk a felhasználót, frissítjük a session_state-et és újratöltünk
             if selected_user != st.session_state.admin_selected_user:
                 st.session_state.admin_selected_user = selected_user
                 st.rerun()
@@ -515,7 +520,6 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# --- 🔄 MÓDOSÍTÁS: A TÖRTÉNET LEKÉRDEZÉSE KÖZVETLENÜL AZ AKTÍV FELHASZNÁLÓ MEGHATÁROZÁSA UTÁN TÖRTÉNIK ---
 chat_history = db_repo.fetch_history(active_chat_user)
 
 def inject_copy_button(text: str, unique_key: str):
