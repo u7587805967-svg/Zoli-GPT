@@ -30,7 +30,7 @@ class AppConfig:
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
-    MAX_HISTORY_CHARS: int = 2000  # <--- EZT ÍRTAM ÁT 2000-RE A SZIGORÚBB TÖMÖRÍTÉSHEZ
+    MAX_HISTORY_CHARS: int = 4000
     RAG_SIMI_THRESHOLD: float = 0.25
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 300
@@ -367,13 +367,7 @@ class AsyncAIEngine:
             return
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(
-                model=model, 
-                messages=messages, 
-                stream=True, 
-                timeout=60.0,
-                max_tokens=800
-            )
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
             
             estimated_tokens = 0
             for chunk in stream:
@@ -443,7 +437,7 @@ class AsyncAIEngine:
                 seen_urls.add(url_key)
                 unique_results.append(r)
                 
-        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:3]])
+        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
@@ -573,14 +567,14 @@ with st.sidebar:
         st.subheader("📋 Rendszer Szerepkör Sablonok")
         persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
-            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli. Válaszolj rendkívül tömören, lényegretörően, felesleges udvariassági körök nélkül.",
-            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. Csak a lényeges magyarázatot írd le, röviden.",
-            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. Légy rövid.",
-            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni."
+            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
+            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
+            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
+            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
-        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None) # <--- EZT ÍRTAM ÁT 1-RE HOGY A LLAMA-3.1-8B-INSTANT LEGYEN AZ ALAPÉRTELMEZETT
+        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
     
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
@@ -792,9 +786,20 @@ if is_admin:
             total_tokens = df_tok['tokens'].sum()
             total_cost = df_tok['cost'].sum()
             
-            col_t1, col_t2 = st.columns(2)
+            # Dinamikus token korlát meghatározása a kiválasztott TEXT_MODEL alapján
+            model_limits = {
+                "llama-3.3-70b-versatile": 131072,
+                "llama-3.1-8b-instant": 131072,
+                "llama-3.2-11b-vision-preview": 131072,
+                "llama-3.2-3b-preview": 131072,
+                "llama-3.2-11b-text-preview": 131072
+            }
+            max_allowed_tokens = model_limits.get(TEXT_MODEL, 131072)
+            
+            col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
-            with col_t2: st.metric("Becsült összköltség", f"${total_cost:.4f}")
+            with col_t2: st.metric("Modell max kapacitás", f"{max_allowed_tokens:,} db", help=f"A jelenleg kiválasztott '{TEXT_MODEL}' kontextusablak mérete.")
+            with col_t3: st.metric("Becsült összköltség", f"${total_cost:.4f}")
             
             st.dataframe(df_tok.tail(30), use_container_width=True)
         else:
@@ -898,16 +903,11 @@ with tab_chat:
                                 if sources:
                                     web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
-                    cleaned_hist, compressed_summary = get_clean_history(chat_history, max_chars=cfg.MAX_HISTORY_CHARS, text_model=TEXT_MODEL)
+                    messages = [{"role": "system", "content": system_prompt + context_addition}]
                     
-                    full_system_content = system_prompt + context_addition
-                    if compressed_summary:
-                        full_system_content += f"\n\nKorábbi beszélgetések tömörített memóriája:\n{compressed_summary}"
-
-                    messages = [{"role": "system", "content": full_system_content}]
-                    
-                    for msg in cleaned_hist:
-                        messages.append({"role": msg["role"], "content": msg["content"]})
+                    for msg in chat_history[-6:]:
+                        if msg["type"] == "text":
+                            messages.append({"role": msg["role"], "content": msg["content"]})
                     
                     messages.append({"role": "user", "content": user_input})
                     
