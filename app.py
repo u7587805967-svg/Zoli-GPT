@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import datetime
@@ -244,6 +243,37 @@ st.markdown("""
     img {
         border-radius: 12px !important;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    /* --- 🆕 Chat input mező testreszabása (Világoskék és Fekete neon stílus + Villogó kurzor) --- */
+    div[data-testid="stChatInput"] {
+        background-color: transparent !important;
+        padding: 10px 0px !important;
+    }
+
+    div[data-testid="stChatInput"] textarea {
+        background-color: rgba(5, 8, 15, 0.9) !important; /* Mélyfekete alap */
+        border: 1px solid rgba(14, 165, 233, 0.2) !important; /* Finom világoskék szegély */
+        color: #f1f5f9 !important; /* Tiszta szövegszín */
+        border-radius: 12px !important;
+        caret-color: #0ea5e9 !important; /* Világoskék villogó kurzor vonal */
+        transition: all 0.3s ease !important;
+    }
+
+    div[data-testid="stChatInput"] textarea:focus {
+        border-color: #0ea5e9 !important; /* Aktív állapotban élénk világoskék szegély */
+        box-shadow: 0 0 15px rgba(14, 165, 233, 0.4) !important; /* Világoskék neon ragyogás */
+    }
+
+    div[data-testid="stChatInput"] button {
+        background-color: transparent !important;
+        color: #0ea5e9 !important; /* Világoskék küldés nyíl ikon */
+        transition: all 0.2s ease !important;
+    }
+
+    div[data-testid="stChatInput"] button:hover {
+        color: #7dd3fc !important; /* Még fényesebb kék rálebegéskor */
+        transform: scale(1.05);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1109,4 +1139,3 @@ with tab_chat:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
                 st.rerun()
-
