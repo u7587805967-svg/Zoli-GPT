@@ -574,7 +574,7 @@ with st.sidebar:
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
-        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
+        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None)
     
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
@@ -786,13 +786,13 @@ if is_admin:
             total_tokens = df_tok['tokens'].sum()
             total_cost = df_tok['cost'].sum()
             
-            # Dinamikus token korlát meghatározása a kiválasztott TEXT_MODEL alapján
+            # Dinamikus token korlát meghatározása az aktuálisan kiválasztott TEXT_MODEL alapján
             model_limits = {
                 "llama-3.3-70b-versatile": 131072,
                 "llama-3.1-8b-instant": 131072,
-                "llama-3.2-11b-vision-preview": 131072,
-                "llama-3.2-3b-preview": 131072,
-                "llama-3.2-11b-text-preview": 131072
+                "llama-3.2-11b-vision-preview": 128000,
+                "llama-3.2-3b-preview": 128000,
+                "llama-3.2-11b-text-preview": 128000
             }
             max_allowed_tokens = model_limits.get(TEXT_MODEL, 131072)
             
