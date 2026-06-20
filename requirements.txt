@@ -11,3 +11,4 @@ python-docx
 groq
 gTTS
 edge-tts
+docker
