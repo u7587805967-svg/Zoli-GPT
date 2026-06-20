@@ -29,9 +29,9 @@ class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
-    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
+    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "") # <--- Biztonságos letöltés a titkokból, nincs hardcoded kulcs
     MAX_HISTORY_CHARS: int = 4000
-    RAG_SIMI_THRESHOLD: float = 0.25
+    RAG_SIMI_THRESHOLD: float = 0.15
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 300
     HUNGARIAN_STOPWORDS = frozenset([
@@ -281,14 +281,21 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
+    # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
-        words = cleaned.split()
-        freq = {}
-        for w in words:
-            if w not in self.config.HUNGARIAN_STOPWORDS:
-                freq[w] = freq.get(w, 0) + 1
-        return freq
+        words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
+        
+        # Karakter n-gramok generálása a jobb morfológiai illeszkedésért (Magyar nyelvbarát RAG)
+        ngrams = {}
+        for word in words:
+            if len(word) > 3:
+                for i in range(len(word) - 2):
+                    gram = word[i:i+3]
+                    ngrams[gram] = ngrams.get(gram, 0) + 1
+            else:
+                ngrams[word] = ngrams.get(word, 0) + 1
+        return ngrams
 
     def smart_chunk_text(self, text: str, max_size: int, overlap: int) -> list:
         sentences = re.split(r'(?<=[.!?])\s+', text.replace('\n\n', '\n'))
@@ -334,6 +341,7 @@ class AsyncAIEngine:
             conn.commit()
             p_bar.empty()
 
+    # --- ADVANCED RAG UPGRADE: Koszinusz hasonlósághoz közeledő n-gram összehasonlítás ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
         rows = []
@@ -343,20 +351,25 @@ class AsyncAIEngine:
             cursor.execute("SELECT doc_name, chunk_text, embedding FROM document_vectors WHERE username=?", (username,))
             rows = cursor.fetchall()
                 
-        cleaned_query = re.sub(r'[^\w\s]', '', query_text.lower())
-        q_words = [w.strip() for w in cleaned_query.split() if len(w) > 2 and w not in self.config.HUNGARIAN_STOPWORDS]
+        q_map = self.compute_simple_tfidf_vector(query_text)
         
-        if q_words and rows:
+        if q_map and rows:
+            q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values()))
             for doc_name, chunk_text, emb_blob in rows:
                 try:
                     freq_map = json.loads(emb_blob.decode('utf-8'))
                 except Exception:
                     freq_map = {}
                 
-                matches = sum(freq_map.get(word, 0) for word in q_words if word in freq_map)
-                if matches > 0:
-                    score = min(0.35 + (0.05 * matches), 0.95)
-                    scored.append({"text": chunk_text, "score": score, "source": doc_name})
+                if not freq_map: continue
+                
+                intersection = sum(q_map[k] * freq_map.get(k, 0) for k in q_map if k in freq_map)
+                doc_magnitude = np.sqrt(sum(v ** 2 for v in freq_map.values()))
+                
+                if intersection > 0 and q_magnitude > 0 and doc_magnitude > 0:
+                    cosine_score = intersection / (q_magnitude * doc_magnitude)
+                    if cosine_score >= self.config.RAG_SIMI_THRESHOLD:
+                        scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
@@ -870,15 +883,18 @@ with tab_chat:
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
-            # Try...finally blokk, ami garantálja, hogy a kód lefutása VAGY hibája után a zár feloldódik
             try:
-                if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
+                # --- UPGRADE: Okosabb, flexibilis Regex alapú média detektálás ---
+                is_image_request = re.search(r'\b(kép|generál|rajzol|mutass|illusztráció|fotó)\b', user_input.lower()) and not re.search(r'\b(videó|video|elemzés|elemezd)\b', user_input.lower())
+                is_video_request = re.search(r'\b(videó|video|animáció|mozgás|klip)\b', user_input.lower())
+                
+                if is_image_request:
                     with st.spinner("🎨 AI Képgenerálás..."):
                         url = ai_engine.generate_image(user_input, TEXT_MODEL)
                         if url:
                             st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                             db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
+                elif is_video_request:
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
                         if url:
@@ -891,13 +907,20 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
+                    # --- ADVANCED RAG UPGRADE INTEGRÁCIÓ: Ha van feltöltött doksi, automatikusan keres benne ---
+                    rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
+                    if rag_results:
+                        st.toast("📚 Releváns személyes emlékek megtalálva az adatbázisban!", icon="🧠")
+                        rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
+                        context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA ÉS DOKUMENTUM KONTEXTUS:\n{rag_context}"
+                    
                     web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
                     if any(w in user_input.lower() for w in web_triggers):
                         st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
                         with st.spinner("🌐 Böngészés a weben..."):
                             web_results = ai_engine.search_web_sync(user_input)
                             if web_results:
-                                context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
+                                context_addition += f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
                                 
                                 sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
                                 if sources:
