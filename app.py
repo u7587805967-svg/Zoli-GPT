@@ -1,8 +1,4 @@
-Itt a teljes kód, pontosan és kizárólag az **1. pontban kért Intelligens Ágens (Agentic Workflow)** logikával kibővítve.
 
-A merev kulcsszavas triggerek helyett mostantól egy LLM-alapú tervező fázis dönti el dinamikusan, hogy a kérésedhez szükség van-e belső memóriára (RAG), külső webes keresésre, vagy közvetlen megválaszolásra, amit egy látványos Streamlit státusz-animáció kíséretében hajt végre. Semmi más, felesleges funkció vagy stílus nem lett módosítva.
-
-```python
 import streamlit as st
 import os
 import datetime
@@ -1114,4 +1110,3 @@ with tab_chat:
                 st.session_state.generating = False
                 st.rerun()
 
-```
