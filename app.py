@@ -31,7 +31,7 @@ class AppConfig:
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
     MAX_HISTORY_CHARS: int = 4000
-    RAG_SIMI_THRESHOLD: float = 0.15
+    RAG_SIMI_THRESHOLD: float = 0.25
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 300
     HUNGARIAN_STOPWORDS = frozenset([
@@ -46,9 +46,6 @@ cfg = AppConfig()
 
 if "generating" not in st.session_state:
     st.session_state.generating = False
-
-if "last_usage" not in st.session_state:
-    st.session_state.last_usage = None
 
 # --- BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
@@ -86,7 +83,7 @@ if not st.session_state.logged_in_user:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 🔄 ADMINISZTRÁTORI ÁLLAPOT ÉS AKTÍV CHAT JAVÍTÁS ---
+# --- 🔄 BIZTONSÁGOS ADMINISZTRÁTORI ÁLLAPOT ÉS AKTÍV CHAT JAVÍTÁS ---
 is_admin = (st.session_state.logged_in_user == cfg.ADMIN_USERNAME.lower().strip())
 
 if is_admin and "admin_selected_user" in st.session_state:
@@ -144,8 +141,6 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS broadcast_system (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, is_active INTEGER)''')
             conn.commit()
 
     def fetch_history(self, username: str) -> list:
@@ -173,7 +168,7 @@ class DatabaseRepository:
             cursor.execute("SELECT DISTINCT username FROM chat_history")
             return [r[0] for r in cursor.fetchall() if r[0]]
 
-    def get_system_stats((self, username: str) -> dict:
+    def get_system_stats(self, username: str) -> dict:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM chat_history WHERE username=?", (username,))
@@ -197,55 +192,6 @@ class DatabaseRepository:
             cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
             return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
 
-    def fetch_user_documents(self, username: str) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT doc_name, file_size FROM document_vectors WHERE username=?", (username,))
-            return [{"name": r[0], "size": r[1]} for r in cursor.fetchall()]
-
-    def delete_specific_document(self, username: str, doc_name: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
-            conn.commit()
-
-    def log_token_usage(self, username: str, prompt_t: int, compl_t: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO token_logs (username, prompt_tokens, completion_tokens, timestamp) VALUES (?, ?, ?, ?)",
-                           (username, prompt_t, compl_t, datetime.datetime.now().isoformat()))
-            conn.commit()
-
-    def fetch_token_stats(self, username: str) -> dict:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT SUM(prompt_tokens), SUM(completion_tokens) FROM token_logs WHERE username=?", (username,))
-            res = cursor.fetchone()
-            return {"prompt": res[0] or 0, "completion": res[1] or 0}
-
-    def set_active_broadcast(self, msg: str, active: int):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM broadcast_system")
-            cursor.execute("INSERT INTO broadcast_system (message, is_active) VALUES (?, ?)", (msg, active))
-            conn.commit()
-
-    def fetch_active_broadcast(self) -> str:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT message FROM broadcast_system WHERE is_active=1 LIMIT 1")
-            res = cursor.fetchone()
-            return res[0] if res else ""
-
-    def fetch_global_sessions(self) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT username, MAX(timestamp) as last_act, COUNT(*) as interactions 
-                FROM chat_history GROUP BY username ORDER BY last_act DESC
-            """)
-            return [{"Felhasználó": r[0], "Utolsó Aktivitás": r[1], "Interakciók": r[2]} for r in cursor.fetchall()]
-
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
@@ -261,7 +207,7 @@ class AsyncAIEngine:
         words = cleaned.split()
         freq = {}
         for w in words:
-            if w not in self.config.HUNGARIAN_STOPWORDS and len(w) > 1:
+            if w not in self.config.HUNGARIAN_STOPWORDS:
                 freq[w] = freq.get(w, 0) + 1
         return freq
 
@@ -319,34 +265,19 @@ class AsyncAIEngine:
             rows = cursor.fetchall()
                 
         cleaned_query = re.sub(r'[^\w\s]', '', query_text.lower())
-        q_words = [w.strip() for w in cleaned_query.split() if len(w) > 1 and w not in self.config.HUNGARIAN_STOPWORDS]
+        q_words = [w.strip() for w in cleaned_query.split() if len(w) > 2 and w not in self.config.HUNGARIAN_STOPWORDS]
         
         if q_words and rows:
-            q_freq = {}
-            for w in q_words:
-                q_freq[w] = q_freq.get(w, 0) + 1
-            all_vocab = set(q_freq.keys())
-            
             for doc_name, chunk_text, emb_blob in rows:
                 try:
                     freq_map = json.loads(emb_blob.decode('utf-8'))
                 except Exception:
                     freq_map = {}
                 
-                if not freq_map: continue
-                
-                vocab = all_vocab.union(freq_map.keys())
-                v1 = np.array([q_freq.get(w, 0) for w in vocab])
-                v2 = np.array([freq_map.get(w, 0) for w in vocab])
-                
-                dot_prod = np.dot(v1, v2)
-                norm_v1 = np.linalg.norm(v1)
-                norm_v2 = np.linalg.norm(v2)
-                
-                if norm_v1 > 0 and norm_v2 > 0:
-                    cosine_sim = float(dot_prod / (norm_v1 * norm_v2))
-                    if cosine_sim >= self.config.RAG_SIMI_THRESHOLD:
-                        scored.append({"text": chunk_text, "score": cosine_sim, "source": doc_name})
+                matches = sum(freq_map.get(word, 0) for word in q_words if word in freq_map)
+                if matches > 0:
+                    score = min(0.35 + (0.05 * matches), 0.95)
+                    scored.append({"text": chunk_text, "score": score, "source": doc_name})
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
@@ -357,25 +288,14 @@ class AsyncAIEngine:
             return
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(
-                model=model, 
-                messages=messages, 
-                stream=True, 
-                timeout=60.0,
-                stream_options={"include_usage": True}
-            )
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
             for chunk in stream:
-                if hasattr(chunk, 'usage') and chunk.usage is not None:
-                    st.session_state.last_usage = {
-                        "prompt": chunk.usage.prompt_tokens,
-                        "completion": chunk.usage.completion_tokens
-                    }
-                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
-    def text_to_speech(self, text: str, voice: str = "hu-HU-TamasNeural", rate: str = "+0%") -> bytes:
+    def text_to_speech(self, text: str) -> bytes:
         if not text: return None
         try:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
@@ -396,7 +316,7 @@ class AsyncAIEngine:
                 return result[0]
 
             async def generate_audio():
-                communicate = edge_tts.Communicate(clean_text[:1000], voice, rate=rate)
+                communicate = edge_tts.Communicate(clean_text[:1000], "hu-HU-TamasNeural")
                 audio_data = b""
                 async for chunk in communicate.stream():
                     if chunk["type"] == "audio":
@@ -494,11 +414,6 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
 
-# --- RENDSERÜZENET (BROADCAST) MEGJELENÍTÉSE ---
-active_broadcast = db_repo.fetch_active_broadcast()
-if active_broadcast:
-    st.warning(f"📢 **Rendszerértesítés:** {active_broadcast}")
-
 # ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
 def get_clean_history(history, max_chars, text_model=None):
     truncated = []
@@ -532,18 +447,12 @@ with st.sidebar:
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
-        persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód", "Egyedi mód"])
-        
-        custom_system_prompt = ""
-        if persona == "Egyedi mód":
-            custom_system_prompt = st.text_area("Egyedi Rendszer Szerepkör (System Prompt):", "Te egy precíz személyes asszisztens vagy, akit Zolinak hívnak.")
-            
+        persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
             "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
             "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
             "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
-            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli.",
-            "Egyedi mód": custom_system_prompt
+            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -578,30 +487,9 @@ with st.sidebar:
                 st.session_state[f"idx_{uploaded_file.name}"] = True
                 st.sidebar.success(f"✅ Mentve ({size_kb})")
 
-        st.markdown("---")
-        st.subheader("🗂️ Indexelt Fájlok Kezelése")
-        saved_docs = db_repo.fetch_user_documents(active_chat_user)
-        if saved_docs:
-            for doc in saved_docs:
-                col_doc_n, col_doc_d = st.columns([4, 1])
-                with col_doc_n:
-                    st.caption(f"📄 {doc['name']} ({doc['size']})")
-                with col_doc_d:
-                    if st.button("🗑️", key=f"del_doc_{doc['name']}", help="Fájl végleges törlése az indexből"):
-                        db_repo.delete_specific_document(active_chat_user, doc['name'])
-                        st.toast(f"Törölve: {doc['name']}", icon="🗑️")
-                        st.rerun()
-        else:
-            st.caption("Nincs mentett dokumentum.")
-
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
-        
-        st.markdown("---")
-        voice_char = st.selectbox("TTS Karakter", ["Férfi (Tamás)", "Női (Noémi)"])
-        voice_speed = st.select_slider("TTS Olvasási sebesség", options=["-20%", "-10%", "+0%", "+10%", "+20%"], value="+0%")
-        selected_voice = "hu-HU-TamasNeural" if voice_char == "Férfi (Tamás)" else "hu-HU-NoemiNeural"
         
         if st.session_state.get("voice_playing", False):
             if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
@@ -669,24 +557,13 @@ with tab_monitor:
     with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("🪙 API Erőforrás Felhasználás és Költségek")
-    token_stats = db_repo.fetch_token_stats(active_chat_user)
-    total_tokens = token_stats["prompt"] + token_stats["completion"]
-    estimated_cost = (total_tokens / 1_000_000) * 0.15
-    
-    col_t1, col_t2, col_t3 = st.columns(3)
-    with col_t1: st.markdown(f'<div class="monitor-card">📥 <b>Prompt Token:</b><br><span style="font-size:18px;color:#a5b4fc;">{token_stats["prompt"]} tk</span></div>', unsafe_allow_html=True)
-    with col_t2: st.markdown(f'<div class="monitor-card">📤 <b>Válasz Token:</b><br><span style="font-size:18px;color:#fca5a5;">{token_stats["completion"]} tk</span></div>', unsafe_allow_html=True)
-    with col_t3: st.markdown(f'<div class="monitor-card">💵 <b>Becsült Költség:</b><br><span style="font-size:18px;color:#fbbf24;">${estimated_cost:.5f}</span></div>', unsafe_allow_html=True)
-
-# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB (KÉRÉSRE ÁTHELYEZVE IDE AN ADMIN PANELLEL EGYÜTT) ---
+# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
         
-        # --- 👑 INTEGRÁLT ADMINISZTRÁCIÓS PANEL ---
+        # --- 👑 INTEGRÁLT ADMINISZTRÁCIÓS PANEL (KÉRÉSRE IDE ÁTHELYEZVE) ---
         st.markdown("### 👑 Adminisztrációs Panel")
         all_users = db_repo.get_all_users()
         if st.session_state.logged_in_user not in all_users:
@@ -708,41 +585,15 @@ if is_admin:
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
         
-        # --- ADMIN FELHASZNÁLÓ TÖRLÉS ---
+        # --- 5. FUNKCIÓ: ADMIN FELHASZNÁLÓ TÖRLÉS ---
         st.markdown("### 👥 Felhasználó Kezelés")
-        if st.button(f"🗑️ '{active_chat_user}' beszélgetésének végleges törlése", type="primary"):
-            db_repo.purge_chat_only(active_chat_user)
-            st.success(f"{active_chat_user} előzményei törölve!")
+        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének végleges törlése", type="primary"):
+            db_repo.purge_chat_only(st.session_state.admin_selected_user)
+            st.success(f"{st.session_state.admin_selected_user} előzményei törölve!")
             time.sleep(1)
             st.rerun()
 
-        # --- ÉLŐ SESSION MONITOR ---
-        st.markdown("---")
-        st.markdown("### 👁️ Élő Felhasználói Session Monitor")
-        sessions = db_repo.fetch_global_sessions()
-        if sessions:
-            st.dataframe(pd.DataFrame(sessions), use_container_width=True, hide_index=True)
-        else:
-            st.info("Nincs rögzített munkamenet.")
-
-        # --- BROADCAST RENDSZER BEÁLLÍTÁSA ---
-        st.markdown("---")
-        st.markdown("### 📢 Rendszerszintű Értesítések Küldése (Broadcast)")
-        bc_msg = st.text_input("Globális üzenet szövege:", value=db_repo.fetch_active_broadcast())
-        col_bc1, col_bc2 = st.columns(2)
-        with col_bc1:
-            if st.button("🚀 Értesítés Aktiválása", use_container_width=True):
-                db_repo.set_active_broadcast(bc_msg, 1)
-                st.success("Broadcast sikeresen aktiválva!")
-                st.rerun()
-        with col_bc2:
-            if st.button("🛑 Értesítés Kikapcsolása", use_container_width=True):
-                db_repo.set_active_broadcast("", 0)
-                st.success("Broadcast kikapcsolva!")
-                st.rerun()
-
-        # --- ADMIN LATENCY CHART ---
-        st.markdown("---")
+        # --- 5. FUNKCIÓ: ADMIN LATENCY CHART ---
         st.markdown("### ⚡ Rendszer Válaszidő (Latency) Monitor")
         latencies = db_repo.fetch_latencies()
         if latencies:
@@ -770,7 +621,7 @@ with tab_chat:
                 st.write(content)
                 if msg["role"] == "assistant":
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
-                        audio_data = ai_engine.text_to_speech(content, voice=selected_voice, rate=voice_speed)
+                        audio_data = ai_engine.text_to_speech(content)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
 
                     with st.container():
@@ -817,32 +668,31 @@ with tab_chat:
                         st.video(url)
                         db_repo.log_message(active_chat_user, "assistant", url, "video")
             else:
+                # --- A SZÖVEGES VÁLASZ GENERÁLÁS BEFEJEZÉSE ÉS A 2/5-ÖS FUNKCIÓ BEÉPÍTÉSE ---
                 start_time = time.perf_counter()
                 
                 system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
                 context_addition = ""
                 web_sources_text = ""
                 
-                rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
-                if rag_results:
-                    rag_ctx_str = "\n".join([f"[Forrás: {r['source']} (Hasonlóság: {r['score']:.2f})]: {r['text']}" for r in rag_results])
-                    context_addition += f"\n\nFONTOS HELYI DOKUMENTUM KONTEXTUSOK:\n{rag_ctx_str}"
-                    st.toast("📚 Releváns személyes emlékek betöltve a memóriából!", icon="🧠")
-
+                # --- 2. FUNKCIÓ: Webes Keresés Trigger ---
                 web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
                 if any(w in user_input.lower() for w in web_triggers):
                     st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
                     with st.spinner("🌐 Böngészés a weben..."):
                         web_results = ai_engine.search_web_sync(user_input)
                         if web_results:
-                            context_addition += f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
+                            context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
                             
+                            # Források kigyűjtése a megjelenítéshez
                             sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
                             if sources:
                                 web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
+                # Üzenetek összeállítása az LLM számára
                 messages = [{"role": "system", "content": system_prompt + context_addition}]
                 
+                # Utolsó pár üzenet betöltése a memóriából
                 for msg in chat_history[-6:]:
                     if msg["type"] == "text":
                         messages.append({"role": msg["role"], "content": msg["content"]})
@@ -855,21 +705,15 @@ with tab_chat:
                         full_response += chunk
                         response_placeholder.markdown(full_response + "▌")
                 
+                # --- 2. FUNKCIÓ: Kattintható források hozzáfűzése ---
                 if web_sources_text:
                     full_response += web_sources_text
                     
                 response_placeholder.markdown(full_response)
                 
+                # --- 5. FUNKCIÓ: Rendszer Latency log rögzítése ---
                 end_time = time.perf_counter()
                 db_repo.log_latency(end_time - start_time)
-                
-                if st.session_state.last_usage:
-                    db_repo.log_token_usage(
-                        active_chat_user, 
-                        st.session_state.last_usage["prompt"], 
-                        st.session_state.last_usage["completion"]
-                    )
-                    st.session_state.last_usage = None
                 
                 db_repo.log_message(active_chat_user, "assistant", full_response, "text")
                 st.rerun()
