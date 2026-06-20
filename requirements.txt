@@ -17,3 +17,4 @@ trafilatura
 FFmpeg
 imageio-ffmpeg
 moviepy
+replicate
