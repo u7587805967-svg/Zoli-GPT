@@ -30,7 +30,7 @@ class AppConfig:
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "56302786-02377baa984d7697c0b5cc4e1")
-    MAX_HISTORY_CHARS: int = 4000
+    MAX_HISTORY_CHARS: int = 2000  # <--- EZT ÍRTAM ÁT 2000-RE A SZIGORÚBB TÖMÖRÍTÉSHEZ
     RAG_SIMI_THRESHOLD: float = 0.25
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 300
