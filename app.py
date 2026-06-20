@@ -147,6 +147,7 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
             try:
                 cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
             except sqlite3.OperationalError: pass
@@ -179,7 +180,7 @@ class DatabaseRepository:
                            (username, role, content, msg_type, caption, datetime.datetime.now().isoformat(), thread_id))
             conn.commit()
 
-    def purge_chat_only(self, username: str, thread_id: str = "default"):
+    def purge_chat_only((self, username: str, thread_id: str = "default"):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_history WHERE username=? AND thread_id=?", (username, thread_id))
@@ -249,6 +250,25 @@ class DatabaseRepository:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
             conn.commit()
+
+    def log_alert(self, message: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO system_alerts (message, timestamp) VALUES (?, ?)", (message, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_latest_alert(self) -> str:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT message FROM system_alerts ORDER BY id DESC LIMIT 1")
+            res = cursor.fetchone()
+            return res[0] if res else ""
+
+    def fetch_user_activity(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, COUNT(*), MAX(timestamp) FROM chat_history GROUP BY username ORDER BY MAX(timestamp) DESC")
+            return [{"username": r[0], "count": r[1], "last_active": r[2]} for r in cursor.fetchall()]
 
 
 # --- 🧠 3. ASZINKRON AI MOTOR ---
@@ -472,6 +492,18 @@ class AsyncAIEngine:
     def anonymize_gdpr(self, text: str) -> str:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
+
+    def execute_python_sandbox(self, code: str) -> str:
+        import sys
+        old_stdout = sys.stdout
+        redirected_output = sys.stdout = io.StringIO()
+        try:
+            exec(code, {}, {})
+            sys.stdout = old_stdout
+            return redirected_output.getvalue()
+        except Exception as e:
+            sys.stdout = old_stdout
+            return f"Hiba a futtatás során: {e}"
 
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 db_repo = DatabaseRepository(cfg.DB_FILE)
@@ -709,6 +741,25 @@ if is_admin:
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
         
+        st.markdown("### 📢 Rendszerértesítés Küldése")
+        new_alert = st.text_input("Új értesítés szövege:", placeholder="pl. Karbantartás ma este...")
+        if st.button("Értesítés kiküldése", use_container_width=True):
+            if new_alert.strip():
+                db_repo.log_alert(new_alert.strip())
+                st.success("Értesítés sikeresen elmentve!")
+                time.sleep(0.5)
+                st.rerun()
+
+        st.markdown("### 📋 Felhasználói Aktivitási Napló (Audit Log)")
+        activity = db_repo.fetch_user_activity()
+        if activity:
+            df_act = pd.DataFrame(activity)
+            df_act.columns = ["Felhasználónév", "Üzenetek száma", "Utolsó aktivitás"]
+            st.dataframe(df_act, use_container_width=True)
+        else:
+            st.info("Még nincs rögzített felhasználói aktivitás.")
+
+        st.markdown("---")
         st.markdown("### 👥 Felhasználó Kezelés")
         if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének véglegen törlése", type="primary"):
             db_repo.purge_chat_only(st.session_state.admin_selected_user, thread_id=st.session_state.get("current_thread", "default"))
@@ -745,6 +796,10 @@ if is_admin:
 
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
+    alert = db_repo.fetch_latest_alert()
+    if alert:
+        st.warning(f"📢 **Rendszerértesítés:** {alert}")
+
     col_left, col_right = st.columns([5, 2])
     with col_right:
         if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
@@ -763,18 +818,28 @@ with tab_chat:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
 
+                    python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
+
                     with st.container():
-                        c1, c2, c3, c4 = st.columns([1.2, 1.2, 1, 1])
-                        with c1:
+                        cols_layout = [1.2, 1.2, 1, 1, 1, 1] if python_codes else [1.2, 1.2, 1, 1]
+                        cols = st.columns(cols_layout)
+                        with cols[0]:
                             inject_copy_button(content, f"h_{idx}")
-                        with c2:
+                        with cols[1]:
                             st.download_button("📄 Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}", use_container_width=True)
-                        with c3:
+                        with cols[2]:
                             if st.button("🇬🇧 En", key=f"trans_{idx}", use_container_width=True): 
                                 st.toast(f"🔤 **Fordítás:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'translate')}", icon="🇬🇧")
-                        with c4:
+                        with cols[3]:
                             if st.button("📝 Össz", key=f"sum_{idx}", use_container_width=True): 
                                 st.toast(f"📝 **Összefoglaló:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'summary')}", icon="📝")
+                        if python_codes:
+                            with cols[4]:
+                                if st.button("⚡ Run", key=f"run_{idx}", use_container_width=True):
+                                    out = ai_engine.execute_python_sandbox(python_codes[0])
+                                    st.info(f"💻 **Kód kimenet:**\n```\n{out}\n```")
+                            with cols[5]:
+                                st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
