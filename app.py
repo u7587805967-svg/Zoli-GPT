@@ -786,19 +786,19 @@ if is_admin:
             total_tokens = df_tok['tokens'].sum()
             total_cost = df_tok['cost'].sum()
             
-            # Dinamikus token korlát meghatározása az aktuálisan kiválasztott TEXT_MODEL alapján
+            # Dinamikus INGYENES percenkénti token korlát (TPM) meghatározása
             model_limits = {
-                "llama-3.3-70b-versatile": 131072,
-                "llama-3.1-8b-instant": 131072,
-                "llama-3.2-11b-vision-preview": 128000,
-                "llama-3.2-3b-preview": 128000,
-                "llama-3.2-11b-text-preview": 128000
+                "llama-3.3-70b-versatile": 6000,
+                "llama-3.1-8b-instant": 6000,
+                "llama-3.2-11b-vision-preview": 6000,
+                "llama-3.2-3b-preview": 6000,
+                "llama-3.2-11b-text-preview": 6000
             }
-            max_allowed_tokens = model_limits.get(TEXT_MODEL, 131072)
+            max_allowed_tokens = model_limits.get(TEXT_MODEL, 6000)
             
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
-            with col_t2: st.metric("Modell max kapacitás", f"{max_allowed_tokens:,} db", help=f"A jelenleg kiválasztott '{TEXT_MODEL}' kontextusablak mérete.")
+            with col_t2: st.metric("Ingyenes percenkénti limit", f"{max_allowed_tokens:,} db", help=f"A jelenleg kiválasztott '{TEXT_MODEL}' modellhez tartozó ingyenes percenkénti token korlát (TPM).")
             with col_t3: st.metric("Becsült összköltség", f"${total_cost:.4f}")
             
             st.dataframe(df_tok.tail(30), use_container_width=True)
