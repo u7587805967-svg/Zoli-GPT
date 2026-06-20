@@ -29,7 +29,7 @@ class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
     ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
     TIMEZONE: str = "Europe/Budapest"
-    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "")
+    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "") # <--- Biztonságos letöltés a titkokból, nincs hardcoded kulcs
     MAX_HISTORY_CHARS: int = 4000
     RAG_SIMI_THRESHOLD: float = 0.15
     CHUNK_SIZE: int = 800
@@ -44,25 +44,29 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 # --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
+# Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
 if "generating" not in st.session_state:
     st.session_state.generating = False
 else:
     st.session_state.generating = False
 
+# --- BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
+# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
     if url_user:
         st.session_state.logged_in_user = url_user
 
+# --- BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
 if not st.session_state.logged_in_user:
     st.markdown("""
         <style>
-        .stApp { background-color: #080A10; color: #f1f5f9; }
-        .login-box { background-color: #121520; padding: 30px; border-radius: 16px; border: 1px solid #1e293b; margin-top: 50px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+        .stApp { background-color: #0d0f16; color: #f1f5f9; }
+        .login-box { background-color: #121520; padding: 30px; border-radius: 10px; border: 1px solid #1e293b; margin-top: 50px; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -82,87 +86,40 @@ if not st.session_state.logged_in_user:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
+# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
+
+# --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
+# Biztosítjuk, hogy az admin által kiválasztott célszemély adatai töltődjenek be a renderelés előtt
 if is_admin and "admin_selected_user" in st.session_state:
     active_chat_user = st.session_state.admin_selected_user
 
-# --- 🎨 UI / UX PRÉMIUM STYLING (1. FÁZIS FRISSÍTÉS) ---
+# --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
-    /* Globális App kinézet */
-    .stApp { background-color: #080A10; color: #f1f5f9; }
-    
-    /* Modern Sidebar Glassmorphism */
-    section[data-testid="stSidebar"] { 
-        background-color: rgba(18, 21, 32, 0.95) !important; 
-        border-right: 1px solid rgba(30, 41, 59, 0.5); 
-        backdrop-filter: blur(10px);
+    .stApp { background-color: #0d0f16; color: #f1f5f9; }
+    section[data-testid="stSidebar"] { background-color: #121520 !important; border-right: 1px solid #1e293b; }
+    .agent-status {
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
-
-    /* 1. FÁZIS: Chat Buborékok Stilizálása */
-    [data-testid="stChatMessage"] {
-        background-color: rgba(22, 26, 39, 0.6);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.2);
-        transition: all 0.3s ease;
-    }
-    
-    [data-testid="stChatMessage"]:hover {
-        background-color: rgba(22, 26, 39, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    /* AI és User ikonok színezése */
-    [data-testid="chatAvatarIcon-user"] { background-color: #3b82f6 !important; }
-    [data-testid="chatAvatarIcon-assistant"] { background-color: #10b981 !important; }
-
-    /* 1. FÁZIS: Hover Akciógombok elrejtése */
-    /* A Streamlit column-okat stHorizontalBlock-nak hívja. Ezt halványítjuk el. */
-    [data-testid="stChatMessage"] div[data-testid="stHorizontalBlock"] {
-        opacity: 0.15;
-        transition: opacity 0.3s ease-in-out;
-        margin-top: 10px;
-    }
-    [data-testid="stChatMessage"]:hover div[data-testid="stHorizontalBlock"] {
-        opacity: 1.0;
-    }
-
-    /* Gombok finomítása */
-    .stButton>button, .stDownloadButton>button { 
-        border-radius: 8px !important; 
-        font-weight: 500; 
-        border: 1px solid rgba(255,255,255,0.1);
-        background-color: rgba(255,255,255,0.03);
-    }
-    .stButton>button:hover, .stDownloadButton>button:hover {
-        background-color: rgba(255,255,255,0.1);
-    }
-
-    /* 1. FÁZIS: Pulzáló kurzor a streaminghez */
-    .pulsating-cursor {
-        display: inline-block;
-        width: 8px;
-        height: 18px;
-        background-color: #10b981;
-        animation: pulse 1s infinite;
-        vertical-align: text-bottom;
-        margin-left: 4px;
-        border-radius: 2px;
-        box-shadow: 0 0 8px #10b981;
-    }
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0; }
-        100% { opacity: 1; }
-    }
-
-    /* Monitor kártyák (Statisztika) */
+    .status-rag { background-color: rgba(99, 102, 241, 0.12); border: 1px solid #6366f1; color: #818cf8; }
+    .status-web { background-color: rgba(6, 182, 212, 0.12); border: 1px solid #06b6d4; color: #22d3ee; }
+    .status-gen { background-color: rgba(16, 185, 129, 0.12); border: 1px solid #10b981; color: #34d399; }
+    .stButton>button, .stDownloadButton>button { border-radius: 6px !important; font-weight: 500; }
+    .action-row { display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
     .monitor-card { background-color: #161a27; border: 1px solid #242b3d; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
+    .tag-style { background-color: #1e293b; color: #94a3b8; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; display: inline-block; margin-right: 5px; margin-top: 5px; border: 1px solid #334155; }
+    .meta-metrics { font-size: 11px; color: #64748b; margin-top: 4px; display: block; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -191,16 +148,23 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
-            try: cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
+            try:
+                cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
             except sqlite3.OperationalError: pass
-            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
+            
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
             except sqlite3.OperationalError: pass
-            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
             except sqlite3.OperationalError: pass
-            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
             except sqlite3.OperationalError: pass
-            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
             except sqlite3.OperationalError: pass
+            
             conn.commit()
 
     def fetch_history(self, username: str, thread_id: str = "default") -> list:
@@ -306,6 +270,7 @@ class DatabaseRepository:
             cursor.execute("SELECT username, COUNT(*), MAX(timestamp) FROM chat_history GROUP BY username ORDER BY MAX(timestamp) DESC")
             return [{"username": r[0], "count": r[1], "last_active": r[2]} for r in cursor.fetchall()]
 
+
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
@@ -316,9 +281,12 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
+    # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
+        
+        # Karakter n-gramok generálása a jobb morfológiai illeszkedésért (Magyar nyelvbarát RAG)
         ngrams = {}
         for word in words:
             if len(word) > 3:
@@ -373,9 +341,11 @@ class AsyncAIEngine:
             conn.commit()
             p_bar.empty()
 
+    # --- ADVANCED RAG UPGRADE: Koszinusz hasonlósághoz közeledő n-gram összehasonlítás ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
         rows = []
+        
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT doc_name, chunk_text, embedding FROM document_vectors WHERE username=?", (username,))
@@ -386,8 +356,11 @@ class AsyncAIEngine:
         if q_map and rows:
             q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values()))
             for doc_name, chunk_text, emb_blob in rows:
-                try: freq_map = json.loads(emb_blob.decode('utf-8'))
-                except Exception: freq_map = {}
+                try:
+                    freq_map = json.loads(emb_blob.decode('utf-8'))
+                except Exception:
+                    freq_map = {}
+                
                 if not freq_map: continue
                 
                 intersection = sum(q_map[k] * freq_map.get(k, 0) for k in q_map if k in freq_map)
@@ -427,16 +400,20 @@ class AsyncAIEngine:
             clean_text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
             clean_text = re.sub(r'[#\*_`\-\>\+\=\[\]\(\)]', '', clean_text).strip()
             if not clean_text: return None
+            
             import edge_tts
             import asyncio
             import threading
+
             def run_async(coro):
                 result = []
-                def run(): result.append(asyncio.run(coro))
+                def run():
+                    result.append(asyncio.run(coro))
                 thread = threading.Thread(target=run)
                 thread.start()
                 thread.join()
                 return result[0]
+
             async def generate_audio():
                 communicate = edge_tts.Communicate(clean_text[:1000], "hu-HU-TamasNeural")
                 audio_data = b""
@@ -444,18 +421,22 @@ class AsyncAIEngine:
                     if chunk["type"] == "audio":
                         audio_data += chunk["data"]
                 return audio_data
+
             return run_async(generate_audio())
-        except Exception: return None
+        except Exception:
+            return None
 
     def search_web_sync(self, query: str) -> str:
         all_results = []
         try:
             with DDGS() as ddgs:
                 res_text = ddgs.text(query, max_results=8)
-                if res_text: all_results.extend(res_text)
+                if res_text:
+                    all_results.extend(res_text)
                 try:
                     res_news = ddgs.news(query, max_results=5)
-                    if res_news: all_results.extend(res_news)
+                    if res_news:
+                        all_results.extend(res_news)
                 except Exception: pass
         except Exception: pass
             
@@ -474,28 +455,38 @@ class AsyncAIEngine:
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
-        for word in stop_words: clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
         clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
         if not clean_query: return None
+        
         en_query = clean_query
         if GROQ_API_KEY:
             try:
                 client = Groq(api_key=GROQ_API_KEY)
-                res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation: {clean_query}"}], timeout=10.0)
+                res = client.chat.completions.create(
+                    model=text_model, 
+                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
+                    timeout=10.0
+                )
                 translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
-                if translated: en_query = translated
-            except Exception: en_query = clean_query
+                if translated:
+                    en_query = translated
+            except Exception:
+                en_query = clean_query
+                
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
 
     def generate_video(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
-        for word in stop_words: clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
         clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
         if not clean_query: return None
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max: {clean_query}"}], timeout=10.0)
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
             en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
         except Exception: en_query = clean_query
         return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
@@ -508,7 +499,9 @@ class AsyncAIEngine:
             return res.choices[0].message.content
         except Exception as e: return f"Hiba: {e}"
 
-    def validate_url_safety(self, text: str) -> str: return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
+    def validate_url_safety(self, text: str) -> str:
+        return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
+
     def anonymize_gdpr(self, text: str) -> str:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
@@ -525,11 +518,39 @@ class AsyncAIEngine:
             sys.stdout = old_stdout
             return f"Hiba a futtatás során: {e}"
 
+# --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 db_repo = DatabaseRepository(cfg.DB_FILE)
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
+
+# ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
+def get_clean_history(history, max_chars, text_model=None):
+    truncated = []
+    old_messages = []
+    curr = 0
+    for h in reversed(history):
+        if h.get("type") == "text":
+            if curr + len(h["content"]) <= max_chars:
+                truncated.insert(0, {"role": h["role"], "content": h["content"]})
+                curr += len(h["content"])
+            else:
+                old_messages.insert(0, f"{h['role']}: {h['content']}")
+    
+    compressed = ""
+    if old_messages and text_model and GROQ_API_KEY:
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            old_txt = "\n".join(old_messages[-10:])
+            res = client.chat.completions.create(
+                model=text_model,
+                messages=[{"role": "user", "content": f"Készíts egy max 2-3 mondatos tömör összefoglalót az alábbi korábbi beszélgetésekből (preferenciák, fontos infók): \n\n{old_txt}"}],
+                timeout=5.0
+            )
+            compressed = res.choices[0].message.content.strip()
+        except Exception: pass
+    return truncated, compressed
 
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
@@ -569,11 +590,13 @@ with st.sidebar:
         TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None)
     
     with st.expander("📂 Média és Dokumentumok", expanded=False):
+        st.subheader("📂 Fájlok és Képek Feltöltése")
         uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
         if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
             ext = uploaded_file.name.split(".")[-1].lower()
             content = ""
             size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+            
             if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
             elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
             elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
@@ -582,10 +605,13 @@ with st.sidebar:
                     df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
                     st.session_state.last_df = df
                     content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
+                    st.sidebar.dataframe(df.head(3))
                 except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
             elif ext in ["png", "jpg", "jpeg"]:
                 st.session_state.active_vision_image = uploaded_file.getvalue()
+                st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
                 st.session_state[f"idx_{uploaded_file.name}"] = True
+                st.sidebar.success("Kép sikeresen betöltve!")
 
             if content:
                 ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
@@ -593,10 +619,12 @@ with st.sidebar:
                 st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
-        st.checkbox("📟 Walkie-Talkie mód", key="walkie_talkie", value=False)
-        audio = mic_recorder(start_prompt="🎙️ Rögzítés", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+        st.subheader("🎙️ Hang rögzítése")
+        st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
+        audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+        
         if st.session_state.get("voice_playing", False):
-            if st.button("🛑 Némítás", type="primary", use_container_width=True):
+            if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
                 st.session_state.mute_voice = True
                 st.session_state.voice_playing = False
                 st.rerun()
@@ -604,6 +632,8 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🚪 Kijelentkezés", use_container_width=True):
         st.session_state.logged_in_user = None
+        if "admin_selected_user" in st.session_state:
+            del st.session_state.admin_selected_user
         st.query_params.clear()
         st.rerun()
 
@@ -611,12 +641,12 @@ chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_stat
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
-    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = "📋 Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: transparent; color: #a5b4fc; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500;">📋 Másolás</button>"""
+    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = "📋 Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: #1e1b4b; color: #a5b4fc; border: 1px solid #312e81; padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500;">📋 Másolás</button>"""
     st.components.v1.html(js, height=38)
 
 def generate_docx_download(text: str) -> bytes:
     doc = Document()
-    doc.add_heading('Zoli GPT Személyes Jegyzet', 0)
+    doc.add_heading('Zoli GPT Személyes Jegyzet Export', 0)
     doc.add_paragraph(text)
     bio = io.BytesIO()
     doc.save(bio)
@@ -624,62 +654,179 @@ def generate_docx_download(text: str) -> bytes:
     return bio.getvalue()
 
 if audio:
-    with st.spinner("🗨️ Hang feldolgozása..."):
+    with st.spinner("🗨️ Hangjegyzet feldolgozása..."):
         try:
             st.session_state.mute_voice = False
             if GROQ_API_KEY:
                 client = Groq(api_key=GROQ_API_KEY)
-                translation = client.audio.transcriptions.create(file=("audio.wav", audio['bytes']), model="whisper-large-v3-turbo", language="hu")
-                if translation.text:
-                    processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(translation.text.strip()))
+                translation = client.audio.transcriptions.create(
+                    file=("audio.wav", audio['bytes']),
+                    model="whisper-large-v3-turbo",
+                    language="hu"
+                )
+                transcribed_text = translation.text.strip() if translation.text else ""
+                if transcribed_text:
+                    processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
                     st.session_state.voice_text = processed_voice
-                    st.rerun()
-        except Exception as e: st.error(f"Hang hiba: {e}")
+                    
+                    if st.session_state.get("walkie_talkie", False):
+                        current_tid = st.session_state.get("current_thread", "default")
+                        db_repo.log_message(active_chat_user, "user", processed_voice, thread_id=current_tid)
+                        
+                        system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                        messages = [{"role": "system", "content": system_prompt}]
+                        current_thread_hist = db_repo.fetch_history(active_chat_user, thread_id=current_tid)
+                        for msg in current_thread_hist[-6:]:
+                            if msg["type"] == "text":
+                                messages.append({"role": msg["role"], "content": msg["content"]})
+                        
+                        full_resp = ""
+                        for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
+                            full_resp += chunk
+                        
+                        db_repo.log_message(active_chat_user, "assistant", full_resp, "text", thread_id=current_tid)
+                        st.session_state.voice_text = ""
+                        st.rerun()
+            else:
+                st.error("Groq API kulcs hiányzik a hangfeldolgozáshoz!")
+        except Exception as e: st.error(f"Groq Whisper hiba: {e}")
 
-tabs_headers = ["💬 Chat", "📊 Statisztika"]
-if is_admin: tabs_headers.append("👑 Admin")
+# --- 📑 INTERFACE TABS ---
+tabs_headers = ["💬 Chat", "📊 Személyes Statisztika"]
+if is_admin:
+    tabs_headers.append("👑 Globális Adminisztráció")
+
 tabs = st.tabs(tabs_headers)
 tab_chat = tabs[0]
 tab_monitor = tabs[1]
 
+# --- 📊 SZEMÉLYES STATISZTIKA TAB ---
 with tab_monitor:
     st.subheader(f"📈 {active_chat_user} Statisztikái")
     stats = db_repo.get_system_stats(active_chat_user)
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1: st.markdown(f'<div class="monitor-card">💬 <b>Összes gondolat:</b><br><span style="font-size:20px;color:#10b981;">{stats["history"]} db</span></div>', unsafe_allow_html=True)
     with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
-    with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információk:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
+    with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
+
+    st.markdown("### 🗂️ Saját indexelt fájljaim")
     user_docs = db_repo.fetch_user_documents(active_chat_user)
     if user_docs:
         for doc in user_docs:
             d_col1, d_col2 = st.columns([4, 1])
-            with d_col1: st.markdown(f"📄 **{doc['doc_name']}**")
+            with d_col1:
+                st.markdown(f"📄 **{doc['doc_name']}** ({doc['file_size']})")
             with d_col2:
-                if st.button("🗑️", key=f"del_{doc['doc_name']}", use_container_width=True):
+                if st.button("🗑️ Törlés", key=f"del_doc_{doc['doc_name']}", use_container_width=True):
                     db_repo.delete_document(active_chat_user, doc['doc_name'])
+                    st.success(f"Törölve: {doc['doc_name']}")
+                    time.sleep(0.5)
                     st.rerun()
+    else:
+        st.info("Nincsenek feltöltött dokumentumaid.")
 
+# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
 if is_admin:
     with tabs[2]:
-        st.subheader("👑 Adminisztráció")
-        st.info(f"Belépve: {st.session_state.logged_in_user}")
+        st.subheader("👑 Globális Rendszerfelügyelet")
+        st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
+        
+        st.markdown("---")
+        st.markdown("### 👥 Felhasználói Fiók Kiválasztása")
         all_users = db_repo.get_all_users()
-        selected_user = st.selectbox("Felhasználó kiválasztása:", all_users, index=all_users.index(st.session_state.get("admin_selected_user", st.session_state.logged_in_user)) if st.session_state.get("admin_selected_user", st.session_state.logged_in_user) in all_users else 0)
-        if selected_user != st.session_state.get("admin_selected_user"):
+        if st.session_state.logged_in_user not in all_users:
+            all_users.append(st.session_state.logged_in_user)
+        
+        if "admin_selected_user" not in st.session_state:
+            st.session_state.admin_selected_user = st.session_state.logged_in_user
+
+        selected_user = st.selectbox(
+            "Felhasználó Chat megtekintése:", 
+            all_users, 
+            index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0,
+            key="global_admin_user_selector"
+        )
+        
+        if selected_user != st.session_state.admin_selected_user:
             st.session_state.admin_selected_user = selected_user
             st.rerun()
+            
+        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        st.markdown("---")
+        
+        st.markdown("### 📢 Rendszerértesítés Küldése")
+        new_alert = st.text_input("Új értesítés szövege:", placeholder="pl. Karbantartás ma este...")
+        if st.button("Értesítés kiküldése", use_container_width=True):
+            if new_alert.strip():
+                db_repo.log_alert(new_alert.strip())
+                st.success("Értesítés sikeresen elmentve!")
+                time.sleep(0.5)
+                st.rerun()
 
-        if st.button(f"🗑️ '{st.session_state.get('admin_selected_user')}' törlése", type="primary"):
+        st.markdown("### 📋 Felhasználói Aktivitási Napló (Audit Log)")
+        activity = db_repo.fetch_user_activity()
+        if activity:
+            df_act = pd.DataFrame(activity)
+            df_act.columns = ["Felhasználónév", "Üzenetek száma", "Utolsó aktivitás"]
+            st.dataframe(df_act, use_container_width=True)
+        else:
+            st.info("Még nincs rögzített felhasználói aktivitás.")
+
+        st.markdown("---")
+        st.markdown("### 👥 Felhasználó Kezelés")
+        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének véglegen törlése", type="primary"):
             db_repo.purge_chat_only(st.session_state.admin_selected_user, thread_id=st.session_state.get("current_thread", "default"))
+            st.success(f"{st.session_state.admin_selected_user} előzményei törölve!")
+            time.sleep(1)
             st.rerun()
 
+        st.markdown("### 📋 Rendszer Válaszidő (Latency) Monitor")
+        latencies = db_repo.fetch_latencies()
+        if latencies:
+            df_lat = pd.DataFrame(latencies)
+            df_lat['timestamp'] = pd.to_datetime(df_lat['timestamp'])
+            df_lat = df_lat.set_index('timestamp')
+            st.line_chart(df_lat['duration'], y_label="Válaszidő (másodperc)")
+        else:
+            st.info("Még nincs rögzített válaszidő adat az adatbázisban.")
+
+        st.markdown("### 🪙 Token- és Költségfigyelő (Groq Usage)")
+        token_stats = db_repo.fetch_token_stats()
+        if token_stats:
+            df_tok = pd.DataFrame(token_stats)
+            df_tok['timestamp'] = pd.to_datetime(df_tok['timestamp'])
+            
+            total_tokens = df_tok['tokens'].sum()
+            total_cost = df_tok['cost'].sum()
+            
+            # Dinamikus INGYENES percenkénti token korlát (TPM) meghatározása
+            model_limits = {
+                "llama-3.3-70b-versatile": 6000,
+                "llama-3.1-8b-instant": 6000,
+                "llama-3.2-11b-vision-preview": 6000,
+                "llama-3.2-3b-preview": 6000,
+                "llama-3.2-11b-text-preview": 6000
+            }
+            max_allowed_tokens = model_limits.get(TEXT_MODEL, 6000)
+            
+            col_t1, col_t2, col_t3 = st.columns(3)
+            with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
+            with col_t2: st.metric("Ingyenes percenkénti limit", f"{max_allowed_tokens:,} db", help=f"A jelenleg kiválasztott '{TEXT_MODEL}' modellhez tartozó ingyenes percenkénti token korlát (TPM).")
+            with col_t3: st.metric("Becsült összköltség", f"${total_cost:.4f}")
+            
+            st.dataframe(df_tok.tail(30), use_container_width=True)
+        else:
+            st.info("Még nincs rögzített token használati adat.")
+
+# --- 💬 CHAT INTERFACE ---
 with tab_chat:
     alert = db_repo.fetch_latest_alert()
-    if alert: st.warning(f"📢 **Értesítés:** {alert}")
+    if alert:
+        st.warning(f"📢 **Rendszerértesítés:** {alert}")
 
     col_left, col_right = st.columns([5, 2])
     with col_right:
-        if st.button("🗑️ Chat ürítése", use_container_width=True):
+        if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
             db_repo.purge_chat_only(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
             st.rerun()
 
@@ -700,21 +847,27 @@ with tab_chat:
                     with st.container():
                         cols_layout = [1.2, 1.2, 1, 1, 1, 1] if python_codes else [1.2, 1.2, 1, 1]
                         cols = st.columns(cols_layout)
-                        with cols[0]: inject_copy_button(content, f"h_{idx}")
-                        with cols[1]: st.download_button("📄 Word", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}", use_container_width=True)
+                        with cols[0]:
+                            inject_copy_button(content, f"h_{idx}")
+                        with cols[1]:
+                            st.download_button("📄 Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}", use_container_width=True)
                         with cols[2]:
-                            if st.button("🇬🇧 En", key=f"trans_{idx}", use_container_width=True): st.toast(ai_engine.post_process_text(content, TEXT_MODEL, 'translate'), icon="🇬🇧")
+                            if st.button("🇬🇧 En", key=f"trans_{idx}", use_container_width=True): 
+                                st.toast(f"🔤 **Fordítás:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'translate')}", icon="🇬🇧")
                         with cols[3]:
-                            if st.button("📝 Össz", key=f"sum_{idx}", use_container_width=True): st.toast(ai_engine.post_process_text(content, TEXT_MODEL, 'summary'), icon="📝")
+                            if st.button("📝 Össz", key=f"sum_{idx}", use_container_width=True): 
+                                st.toast(f"📝 **Összefoglaló:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'summary')}", icon="📝")
                         if python_codes:
                             with cols[4]:
                                 if st.button("⚡ Run", key=f"run_{idx}", use_container_width=True):
-                                    st.info(f"Kimenet:\n{ai_engine.execute_python_sandbox(python_codes[0])}")
-                            with cols[5]: st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
+                                    out = ai_engine.execute_python_sandbox(python_codes[0])
+                                    st.info(f"💻 **Kód kimenet:**\n```\n{out}\n```")
+                            with cols[5]:
+                                st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
-    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     
+    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
@@ -727,74 +880,77 @@ with tab_chat:
         db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
 
         with st.chat_message("assistant"):
+            status_placeholder = st.empty()
             response_placeholder = st.empty()
             
             try:
-                is_img = re.search(r'\b(kép|generál|rajzol|mutass)\b', user_input.lower()) and not re.search(r'\b(videó|video|elemzés)\b', user_input.lower())
-                is_vid = re.search(r'\b(videó|video|animáció)\b', user_input.lower())
+                # --- UPGRADE: Okosabb, flexibilis Regex alapú média detektálás ---
+                is_image_request = re.search(r'\b(kép|generál|rajzol|mutass|illusztráció|fotó)\b', user_input.lower()) and not re.search(r'\b(videó|video|elemzés|elemezd)\b', user_input.lower())
+                is_video_request = re.search(r'\b(videó|video|animáció|mozgás|klip)\b', user_input.lower())
                 
-                if is_img:
-                    with st.status("🎨 AI Képgenerálás folyamatban...", expanded=True) as status:
+                if is_image_request:
+                    with st.spinner("🎨 AI Képgenerálás..."):
                         url = ai_engine.generate_image(user_input, TEXT_MODEL)
                         if url:
                             st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                             db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                            status.update(label="✅ Kép legenerálva!", state="complete", expanded=False)
-                elif is_vid:
-                    with st.status("🎬 AI Videógenerálás folyamatban...", expanded=True) as status:
+                elif is_video_request:
+                    with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
                         if url:
                             st.video(url)
                             db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
-                            status.update(label="✅ Videó legenerálva!", state="complete", expanded=False)
                 else:
                     start_time = time.perf_counter()
+                    
                     system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
                     context_addition = ""
                     web_sources_text = ""
                     
+                    # --- ADVANCED RAG UPGRADE INTEGRÁCIÓ: Ha van feltöltött doksi, automatikusan keres benne ---
                     rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
                     if rag_results:
+                        st.toast("📚 Releváns személyes emlékek megtalálva az adatbázisban!", icon="🧠")
                         rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
-                        context_addition += f"\n\nFONTOS MEMÓRIA:\n{rag_context}"
+                        context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA ÉS DOKUMENTUM KONTEXTUS:\n{rag_context}"
                     
                     web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
                     if any(w in user_input.lower() for w in web_triggers):
-                        # 1. FÁZIS: Modern Webes státusz vizualizáció
-                        with st.status("🌐 Csatlakozás a világhálóhoz...", expanded=True) as web_status:
-                            st.write("Adatok gyűjtése és elemzése...")
+                        st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
+                        with st.spinner("🌐 Böngészés a weben..."):
                             web_results = ai_engine.search_web_sync(user_input)
                             if web_results:
-                                context_addition += f"\n\nWEBRŐL:\n{web_results}"
+                                context_addition += f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
+                                
                                 sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
-                                if sources: web_sources_text = "\n\n---\n**🌐 Források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
-                                web_status.update(label="🌐 Webes adatok sikeresen beolvasva!", state="complete", expanded=False)
-                            else:
-                                web_status.update(label="Nem található releváns adat.", state="error", expanded=False)
+                                if sources:
+                                    web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
+                    
                     for msg in chat_history[-6:]:
-                        if msg["type"] == "text": messages.append({"role": msg["role"], "content": msg["content"]})
+                        if msg["type"] == "text":
+                            messages.append({"role": msg["role"], "content": msg["content"]})
+                    
                     messages.append({"role": "user", "content": user_input})
                     
                     full_response = ""
-                    
-                    # 1. FÁZIS: Modern Státusz generálás alatt + Pulzáló kurzor
-                    with st.status("🧠 MI gondolkodási folyamat...", expanded=True) as status:
-                        st.write("Válasz megfogalmazása...")
+                    with st.spinner("Gondolkodom..."):
                         for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
                             full_response += chunk
-                            # CSS osztályt használunk a sima "▌" helyett:
-                            response_placeholder.markdown(full_response + '<span class="pulsating-cursor"></span>', unsafe_allow_html=True)
-                        status.update(label="✅ Válasz kész", state="complete", expanded=False)
+                            response_placeholder.markdown(full_response + "▌")
                     
-                    if web_sources_text: full_response += web_sources_text
-                    
+                    if web_sources_text:
+                        full_response += web_sources_text
+                        
                     response_placeholder.markdown(full_response)
+                    
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
+                    
                     db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
             
             finally:
+                # Kényszerített feloldás a végén
                 st.session_state.generating = False
                 st.rerun()
