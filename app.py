@@ -341,7 +341,7 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
-    # --- 3. MÓDOSÍTÁS: Usage kinyerése a Groq folyamból ---
+    # --- JAVÍTÁS: A hiba elkerülése érdekében törölve a nem támogatott 'stream_options' paraméter ---
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
             st.error("❌ Hiányzó Groq API kulcs!")
@@ -349,12 +349,18 @@ class AsyncAIEngine:
             return
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0, stream_options={"include_usage": True})
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
+            
+            # Becsült token-számlálás a válasz közben a statisztika folyamatosságához
+            estimated_tokens = 0
             for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-                if username and hasattr(chunk, 'usage') and chunk.usage is not None:
-                    self.db.log_tokens(username, chunk.usage.total_tokens, model)
+                    content = chunk.choices[0].delta.content
+                    estimated_tokens += max(1, len(content) // 4)
+                    yield content
+                    
+            if username and estimated_tokens > 0:
+                self.db.log_tokens(username, estimated_tokens, model)
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
@@ -508,7 +514,6 @@ def get_clean_history(history, max_chars, text_model=None):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
-    # --- 2. FUNKCIÓ: TÖBBSZÁLÚ BESZÉLGETÉSEK SZAKASZ ---
     if "current_thread" not in st.session_state:
         st.session_state.current_thread = "default"
         
@@ -528,8 +533,6 @@ with st.sidebar:
             st.success(f"Szál elindítva: {cleaned_thread}")
             time.sleep(0.5)
             st.rerun()
-
-    # --- AZ ADMIN PANEL KIMÁSOLVA INNEN ---
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -575,7 +578,6 @@ with st.sidebar:
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
-        # --- 7. FUNKCIÓ: WALKIE-TALKIE SWITCH ---
         st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
@@ -593,7 +595,6 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-# --- 2. MÓDOSÍTÁS: Az aktív szál történetének betöltése ---
 chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
 
 def inject_copy_button(text: str, unique_key: str):
@@ -626,7 +627,6 @@ if audio:
                     processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
                     st.session_state.voice_text = processed_voice
                     
-                    # --- 7. FUNKCIÓ: WALKIE-TALKIE AZONNALI FELDOLGOZÁSI CIKLUS ---
                     if st.session_state.get("walkie_talkie", False):
                         current_tid = st.session_state.get("current_thread", "default")
                         db_repo.log_message(active_chat_user, "user", processed_voice, thread_id=current_tid)
@@ -667,7 +667,6 @@ with tab_monitor:
     with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
-    # --- 4. FUNKCIÓ: FEJLETTEBB DOKUMENTUMKEZELŐ (RAG) MENEDZSER FELÜLET ---
     st.markdown("### 🗂️ Saját indexelt fájljaim")
     user_docs = db_repo.fetch_user_documents(active_chat_user)
     if user_docs:
@@ -690,7 +689,6 @@ if is_admin:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
         
-        # --- JAVÍTÁS: Ide került át az Adminisztrációs Panel és a felhasználóválasztó a sidebarról ---
         st.markdown("---")
         st.markdown("### 👥 Felhasználói Fiók Kiválasztása")
         all_users = db_repo.get_all_users()
@@ -714,7 +712,6 @@ if is_admin:
         st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
         st.markdown("---")
         
-        # --- 5. FUNKCIÓ: ADMIN FELHASZNÁLÓ TÖRLÉS ---
         st.markdown("### 👥 Felhasználó Kezelés")
         if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének véglegen törlése", type="primary"):
             db_repo.purge_chat_only(st.session_state.admin_selected_user, thread_id=st.session_state.get("current_thread", "default"))
@@ -722,7 +719,6 @@ if is_admin:
             time.sleep(1)
             st.rerun()
 
-        # --- 5. FUNKCIÓ: ADMIN LATENCY CHART ---
         st.markdown("### ⚡ Rendszer Válaszidő (Latency) Monitor")
         latencies = db_repo.fetch_latencies()
         if latencies:
@@ -733,7 +729,6 @@ if is_admin:
         else:
             st.info("Még nincs rögzített válaszidő adat az adatbázisban.")
 
-        # --- 3. FUNKCIÓ: TOKEN- ÉS KÖLTSÉGFIGYELŐ DIAGRAM ÉS ADATOK ---
         st.markdown("### 🪙 Token- és Költségfigyelő (Groq Usage)")
         token_stats = db_repo.fetch_token_stats()
         if token_stats:
@@ -815,14 +810,12 @@ with tab_chat:
                         st.video(url)
                         db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
             else:
-                # --- A SZÖVEGES VÁLASZ GENERÁLÁS BEFEJEZÉSE ÉS A 2/5-ÖS FUNKCIÓ BEÉPÍTÉSE ---
                 start_time = time.perf_counter()
                 
                 system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
                 context_addition = ""
                 web_sources_text = ""
                 
-                # --- 2. FUNKCIÓ: Webes Keresés Trigger ---
                 web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
                 if any(w in user_input.lower() for w in web_triggers):
                     st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
@@ -831,15 +824,12 @@ with tab_chat:
                         if web_results:
                             context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
                             
-                            # Források kigyűjtése a megjelenítéshez
                             sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
                             if sources:
                                 web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
-                # Üzenetek összeállítása az LLM számára
                 messages = [{"role": "system", "content": system_prompt + context_addition}]
                 
-                # Utolsó pár üzenet betöltése a memóriából
                 for msg in chat_history[-6:]:
                     if msg["type"] == "text":
                         messages.append({"role": msg["role"], "content": msg["content"]})
@@ -852,13 +842,11 @@ with tab_chat:
                         full_response += chunk
                         response_placeholder.markdown(full_response + "▌")
                 
-                # --- 2. FUNKCIÓ: Kattintható források hozzáfűzése ---
                 if web_sources_text:
                     full_response += web_sources_text
                     
                 response_placeholder.markdown(full_response)
                 
-                # --- 5. FUNKCIÓ: Rendszer Latency log rögzítése ---
                 end_time = time.perf_counter()
                 db_repo.log_latency(end_time - start_time)
                 
