@@ -89,6 +89,10 @@ active_chat_user = st.session_state.logged_in_user
 # --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
+# Biztosítjuk, hogy az admin által kiválasztott célszemély adatai töltődjenek be a renderelés előtt
+if is_admin and "admin_selected_user" in st.session_state:
+    active_chat_user = st.session_state.admin_selected_user
+
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
@@ -143,6 +147,21 @@ class DatabaseRepository:
             try:
                 cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
             except sqlite3.OperationalError: pass
+            
+            # --- JAVÍTÁS: Strukturális oszlop-ellenőrzés a token_logs táblához az OperationalError ellen ---
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
+            except sqlite3.OperationalError: pass
+            
             conn.commit()
 
     def fetch_history(self, username: str, thread_id: str = "default") -> list:
@@ -510,29 +529,7 @@ with st.sidebar:
             time.sleep(0.5)
             st.rerun()
 
-    if is_admin:
-        st.markdown("---")
-        with st.expander("👑 Adminisztrációs Panel", expanded=False):
-            all_users = db_repo.get_all_users()
-            if st.session_state.logged_in_user not in all_users:
-                all_users.append(st.session_state.logged_in_user)
-            
-            if "admin_selected_user" not in st.session_state:
-                st.session_state.admin_selected_user = st.session_state.logged_in_user
-
-            selected_user = st.selectbox(
-                "Felhasználó Chat megtekintése:", 
-                all_users, 
-                index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
-            )
-            
-            if selected_user != st.session_state.admin_selected_user:
-                st.session_state.admin_selected_user = selected_user
-                st.rerun()
-                
-            active_chat_user = st.session_state.admin_selected_user
-            st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
-        st.markdown("---")
+    # --- AZ ADMIN PANEL KIMÁSOLVA INNEN ---
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -692,6 +689,30 @@ if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
+        
+        # --- JAVÍTÁS: Ide került át az Adminisztrációs Panel és a felhasználóválasztó a sidebarról ---
+        st.markdown("---")
+        st.markdown("### 👥 Felhasználói Fiók Kiválasztása")
+        all_users = db_repo.get_all_users()
+        if st.session_state.logged_in_user not in all_users:
+            all_users.append(st.session_state.logged_in_user)
+        
+        if "admin_selected_user" not in st.session_state:
+            st.session_state.admin_selected_user = st.session_state.logged_in_user
+
+        selected_user = st.selectbox(
+            "Felhasználó Chat megtekintése:", 
+            all_users, 
+            index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0,
+            key="global_admin_user_selector"
+        )
+        
+        if selected_user != st.session_state.admin_selected_user:
+            st.session_state.admin_selected_user = selected_user
+            st.rerun()
+            
+        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        st.markdown("---")
         
         # --- 5. FUNKCIÓ: ADMIN FELHASZNÁLÓ TÖRLÉS ---
         st.markdown("### 👥 Felhasználó Kezelés")
