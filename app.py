@@ -138,12 +138,20 @@ if is_admin and "admin_selected_user" in st.session_state:
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
+    /* Ambient Glow & Premium Glassmorphism Háttér */
     .stApp { 
-        background: radial-gradient(circle at center, #0e121f 0%, #080a10 100%) !important; 
+        background-color: #080a10 !important;
+        background-image: 
+            radial-gradient(circle at 20% 30%, rgba(79, 70, 229, 0.18) 0%, transparent 45%),
+            radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at center, #0e121f 0%, #080a10 100%) !important; 
+        background-attachment: fixed !important;
         color: #f1f5f9; 
     }
     section[data-testid="stSidebar"] { 
-        background-color: #0b0d16 !important; 
+        background-color: rgba(11, 13, 22, 0.75) !important; 
+        backdrop-filter: blur(15px) !important;
+        -webkit-backdrop-filter: blur(15px) !important;
         border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
     }
     .agent-status {
@@ -165,22 +173,26 @@ st.markdown("""
     .stButton>button, .stDownloadButton>button { 
         border-radius: 8px !important; 
         font-weight: 500 !important; 
-        background-color: #161c2e !important;
+        background-color: rgba(22, 28, 45, 0.6) !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
         color: #e2e8f0 !important;
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
     }
     .stButton>button:hover, .stDownloadButton>button:hover {
         background-color: #1e263f !important;
         border-color: #4f46e5 !important;
         color: #ffffff !important;
         transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
     }
     
     /* Elsődleges gombok kitüntetése */
     div[data-testid="stSidebar"] .stButton>button[kind="primary"] {
         background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%) !important;
         border: none !important;
+        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4) !important;
     }
     
     .action-row { display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
@@ -188,13 +200,13 @@ st.markdown("""
     /* Monitor Kártyák prémium Glassmorphism stílusban */
     .monitor-card { 
         background: rgba(22, 28, 45, 0.4) !important; 
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.05) !important; 
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08) !important; 
         padding: 20px; 
         border-radius: 12px; 
         margin-bottom: 12px; 
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
     }
     .tag-style { 
         background-color: rgba(30, 41, 59, 0.6); 
@@ -218,14 +230,19 @@ st.markdown("""
         padding: 10px !important;
     }
     
-    /* Csevegő buborékok és képek lekerekítése */
+    /* Csevegő buborékok lebegő és körbefuttatott neonos hatása */
     div[data-testid="stChatMessage"] {
+        background: rgba(17, 22, 37, 0.45) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
         border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.02) !important;
-        margin-bottom: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        margin-bottom: 12px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.05) !important;
     }
     img {
         border-radius: 12px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
     }
     </style>
 """, unsafe_allow_html=True)
