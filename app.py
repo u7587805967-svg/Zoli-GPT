@@ -367,7 +367,13 @@ class AsyncAIEngine:
             return
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
+            stream = client.chat.completions.create(
+                model=model, 
+                messages=messages, 
+                stream=True, 
+                timeout=60.0,
+                max_tokens=800
+            )
             
             estimated_tokens = 0
             for chunk in stream:
@@ -437,7 +443,7 @@ class AsyncAIEngine:
                 seen_urls.add(url_key)
                 unique_results.append(r)
                 
-        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
+        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:3]])
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
@@ -567,10 +573,10 @@ with st.sidebar:
         st.subheader("📋 Rendszer Szerepkör Sablonok")
         persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
-            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
-            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
-            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
-            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
+            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli. Válaszolj rendkívül tömören, lényegretörően, felesleges udvariassági körök nélkül.",
+            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. Csak a lényeges magyarázatot írd le, röviden.",
+            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. Légy rövid.",
+            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni."
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -892,11 +898,16 @@ with tab_chat:
                                 if sources:
                                     web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
-                    messages = [{"role": "system", "content": system_prompt + context_addition}]
+                    cleaned_hist, compressed_summary = get_clean_history(chat_history, max_chars=cfg.MAX_HISTORY_CHARS, text_model=TEXT_MODEL)
                     
-                    for msg in chat_history[-6:]:
-                        if msg["type"] == "text":
-                            messages.append({"role": msg["role"], "content": msg["content"]})
+                    full_system_content = system_prompt + context_addition
+                    if compressed_summary:
+                        full_system_content += f"\n\nKorábbi beszélgetések tömörített memóriája:\n{compressed_summary}"
+
+                    messages = [{"role": "system", "content": full_system_content}]
+                    
+                    for msg in cleaned_hist:
+                        messages.append({"role": msg["role"], "content": msg["content"]})
                     
                     messages.append({"role": "user", "content": user_input})
                     
