@@ -80,18 +80,18 @@ if not st.session_state.logged_in_user:
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
         }
         .stButton>button {
-            background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%) !important;
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
             color: #ffffff !important;
             border: none !important;
             border-radius: 8px !important;
             font-weight: 600 !important;
             padding: 12px 24px !important;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3) !important;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3) !important;
         }
         .stButton>button:hover {
             transform: translateY(-2px) !important;
-            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.5) !important;
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.5) !important;
             border: none !important;
         }
         .stTextInput>div>div>input {
@@ -103,8 +103,8 @@ if not st.session_state.logged_in_user:
             transition: all 0.3s ease !important;
         }
         .stTextInput>div>div>input:focus {
-            border-color: #4f46e5 !important;
-            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2) !important;
+            border-color: #0284c7 !important;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2) !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -138,21 +138,21 @@ if is_admin and "admin_selected_user" in st.session_state:
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
-    /* Ambient Glow & Premium Glassmorphism Háttér */
+    /* Világoskék és Fekete Ambient Glow & Premium Glassmorphism Háttér */
     .stApp { 
-        background-color: #080a10 !important;
+        background-color: #000000 !important;
         background-image: 
-            radial-gradient(circle at 20% 30%, rgba(79, 70, 229, 0.18) 0%, transparent 45%),
-            radial-gradient(circle at 80% 70%, rgba(6, 182, 212, 0.15) 0%, transparent 50%),
-            radial-gradient(circle at center, #0e121f 0%, #080a10 100%) !important; 
+            radial-gradient(circle at 20% 25%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 80% 75%, rgba(56, 189, 248, 0.12) 0%, transparent 55%),
+            radial-gradient(circle at center, #050b14 0%, #000000 100%) !important; 
         background-attachment: fixed !important;
         color: #f1f5f9; 
     }
     section[data-testid="stSidebar"] { 
-        background-color: rgba(11, 13, 22, 0.75) !important; 
+        background-color: rgba(5, 8, 15, 0.8) !important; 
         backdrop-filter: blur(15px) !important;
         -webkit-backdrop-filter: blur(15px) !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.05) !important; 
+        border-right: 1px solid rgba(255, 255, 255, 0.04) !important; 
     }
     .agent-status {
         padding: 12px 16px;
@@ -163,9 +163,9 @@ st.markdown("""
         display: inline-flex;
         align-items: center;
         gap: 10px;
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
     }
-    .status-rag { background-color: rgba(79, 70, 229, 0.1); border: 1px solid rgba(79, 70, 229, 0.4); color: #a5b4fc; }
+    .status-rag { background-color: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.4); color: #7dd3fc; }
     .status-web { background-color: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.4); color: #67e8f9; }
     .status-gen { background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
     
@@ -173,43 +173,43 @@ st.markdown("""
     .stButton>button, .stDownloadButton>button { 
         border-radius: 8px !important; 
         font-weight: 500 !important; 
-        background-color: rgba(22, 28, 45, 0.6) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        background-color: rgba(15, 23, 42, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.06) !important;
         color: #e2e8f0 !important;
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
         backdrop-filter: blur(4px);
         -webkit-backdrop-filter: blur(4px);
     }
     .stButton>button:hover, .stDownloadButton>button:hover {
-        background-color: #1e263f !important;
-        border-color: #4f46e5 !important;
+        background-color: #0c1e36 !important;
+        border-color: #0ea5e9 !important;
         color: #ffffff !important;
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+        box-shadow: 0 4px 12px rgba(14, 165, 233, 0.25);
     }
     
     /* Elsődleges gombok kitüntetése */
     div[data-testid="stSidebar"] .stButton>button[kind="primary"] {
-        background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%) !important;
+        background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%) !important;
         border: none !important;
-        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4) !important;
+        box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35) !important;
     }
     
     .action-row { display: flex; gap: 8px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
     
     /* Monitor Kártyák prémium Glassmorphism stílusban */
     .monitor-card { 
-        background: rgba(22, 28, 45, 0.4) !important; 
+        background: rgba(15, 23, 42, 0.4) !important; 
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08) !important; 
+        border: 1px solid rgba(255, 255, 255, 0.06) !important; 
         padding: 20px; 
         border-radius: 12px; 
         margin-bottom: 12px; 
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     }
     .tag-style { 
-        background-color: rgba(30, 41, 59, 0.6); 
+        background-color: rgba(15, 23, 42, 0.6); 
         color: #cbd5e1; 
         padding: 4px 12px; 
         border-radius: 20px; 
@@ -218,31 +218,31 @@ st.markdown("""
         display: inline-block; 
         margin-right: 6px; 
         margin-top: 6px; 
-        border: 1px solid rgba(255, 255, 255, 0.08); 
+        border: 1px solid rgba(255, 255, 255, 0.06); 
     }
     .meta-metrics { font-size: 11px; color: #64748b; margin-top: 4px; display: block; }
     
     /* Fájlfeltöltő szépítése */
     section[data-testid="stFileUploader"] {
-        border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+        border: 1px dashed rgba(255, 255, 255, 0.12) !important;
         border-radius: 12px !important;
-        background-color: rgba(22, 28, 45, 0.2) !important;
+        background-color: rgba(15, 23, 42, 0.2) !important;
         padding: 10px !important;
     }
     
-    /* Csevegő buborékok lebegő és körbefuttatott neonos hatása */
+    /* Csevegő buborékok lebegő és körbefuttatott világoskék neonos hatása */
     div[data-testid="stChatMessage"] {
-        background: rgba(17, 22, 37, 0.45) !important;
+        background: rgba(10, 15, 30, 0.55) !important;
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
         border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.03) !important;
         margin-bottom: 12px !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.05) !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.03) !important;
     }
     img {
         border-radius: 12px !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -765,7 +765,7 @@ chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_stat
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
-    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = "📋 Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(79, 70, 229, 0.15); color: #a5b4fc; border: 1px solid rgba(79, 70, 229, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">📋 Másolás</button>"""
+    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = "📋 Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(14, 165, 233, 0.15); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">📋 Másolás</button>"""
     st.components.v1.html(js, height=38)
 
 def generate_docx_download(text: str) -> bytes:
@@ -830,7 +830,7 @@ with tab_monitor:
     stats = db_repo.get_system_stats(active_chat_user)
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1: st.markdown(f'<div class="monitor-card">💬 <b>Összes gondolat:</b><br><span style="font-size:22px;font-weight:700;color:#10b981;">{stats["history"]} db</span></div>', unsafe_allow_html=True)
-    with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:22px;font-weight:700;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
+    with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:22px;font-weight:700;color:#0ea5e9;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:22px;font-weight:700;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
     st.markdown("### 🗂️ Saját indexelt fájljaim")
@@ -879,7 +879,7 @@ if is_admin:
         st.markdown("---")
         
         st.markdown("### 📢 Rendszerértesítés Küldése")
-        new_alert = st.text_input("Új értesítés szövege:", placeholder="pl. Karbantartás ma este...")
+        new_alert = st.text_input("Új értesítés szöge:", placeholder="pl. Karbantartás ma este...")
         if st.button("Értesítés kiküldése", use_container_width=True):
             if new_alert.strip():
                 db_repo.log_alert(new_alert.strip())
