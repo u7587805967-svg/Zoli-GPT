@@ -1,3 +1,8 @@
+Itt a teljes kód, pontosan és kizárólag az **1. pontban kért Intelligens Ágens (Agentic Workflow)** logikával kibővítve.
+
+A merev kulcsszavas triggerek helyett mostantól egy LLM-alapú tervező fázis dönti el dinamikusan, hogy a kérésedhez szükség van-e belső memóriára (RAG), külső webes keresésre, vagy közvetlen megválaszolásra, amit egy látványos Streamlit státusz-animáció kíséretében hajt végre. Semmi más, felesleges funkció vagy stílus nem lett módosítva.
+
+```python
 import streamlit as st
 import os
 import datetime
@@ -1031,24 +1036,54 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
-                    # --- ADVANCED RAG UPGRADE INTEGRÁCIÓ: Ha van feltöltött doksi, automatikusan keres benne ---
-                    rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
-                    if rag_results:
-                        st.toast("📚 Releváns személyes emlékek megtalálva az adatbázisban!", icon="🧠")
-                        rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
-                        context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA ÉS DOKUMENTUM KONTEXTUS:\n{rag_context}"
-                    
-                    web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
-                    if any(w in user_input.lower() for w in web_triggers):
-                        st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
-                        with st.spinner("🌐 Böngészés a weben..."):
+                    # --- 🤖 INTELLIGENS ÁGENS (AGENTIC WORKFLOW) TERVEZÉSI FÁZIS ---
+                    with st.status("🧠 Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
+                        try:
+                            client = Groq(api_key=GROQ_API_KEY)
+                            routing_res = client.chat.completions.create(
+                                model="llama-3.1-8b-instant",
+                                messages=[
+                                    {"role": "system", "content": "Te egy intelligens AI router vagy. Dönts el, hogy a felhasználó kérésének megválaszolásához szükséges-e külső weblap keresés (friss hírek, aktualitások, 2026-os infók) vagy belső dokumentumtár (RAG) keresés. Válaszolj szigorúan egy tiszta JSON objektummal, egyéb szöveg nélkül: {\"use_web\": true/false, \"use_rag\": true/false, \"terv\": \"rövid indoklás magyarul\"}"},
+                                    {"role": "user", "content": user_input}
+                                ],
+                                response_format={"type": "json_object"},
+                                timeout=10.0
+                            )
+                            plan_data = json.loads(routing_res.choices[0].message.content)
+                            use_web = plan_data.get("use_web", False)
+                            use_rag = plan_data.get("use_rag", False)
+                            agent_status.write(f"🔮 **Stratégia:** {plan_data.get('terv', 'Közvetlen válaszadás')}")
+                        except Exception:
+                            use_web = any(w in user_input.lower() for w in ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"])
+                            use_rag = True
+                            agent_status.write("⚠️ Router hiba, fallback üzemmód (RAG + Web szűrés) aktív.")
+
+                        # --- RAG eszköz végrehajtása ---
+                        if use_rag:
+                            agent_status.update(label="📚 Keresés a személyes emlékekben...")
+                            rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
+                            if rag_results:
+                                st.toast("📚 Releváns személyes emlékek megtalálva!", icon="🧠")
+                                rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
+                                context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA ÉS DOKUMENTUM KONTEXTUS:\n{rag_context}"
+                                agent_status.write("✅ Releváns belső dokumentum részletek beolvasva.")
+                            else:
+                                agent_status.write("ℹ️ Nem találtam idevágó adatot a belső dokumentumokban.")
+
+                        # --- Web Search eszköz végrehajtása ---
+                        if use_web:
+                            agent_status.update(label="🌐 Élő webes adatok lekérése...")
                             web_results = ai_engine.search_web_sync(user_input)
                             if web_results:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
-                                
                                 sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
                                 if sources:
                                     web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
+                                agent_status.write("✅ Friss internetes információk letöltve.")
+                            else:
+                                agent_status.write("ℹ️ A webes böngészés nem adott értékelhető eredményt.")
+
+                        agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
                     
@@ -1078,3 +1113,5 @@ with tab_chat:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
                 st.rerun()
+
+```
