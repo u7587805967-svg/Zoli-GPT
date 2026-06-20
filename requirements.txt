@@ -15,4 +15,5 @@ docker
 FlashRank
 trafilatura
 FFmpeg
-ComfyUI
+imageio-ffmpeg
+moviepy
