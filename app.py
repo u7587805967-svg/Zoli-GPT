@@ -580,7 +580,7 @@ with st.sidebar:
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
-        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
+        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None) # <--- EZT ÍRTAM ÁT 1-RE HOGY A LLAMA-3.1-8B-INSTANT LEGYEN AZ ALAPÉRTELMEZETT
     
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
