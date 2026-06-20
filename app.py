@@ -180,7 +180,7 @@ class DatabaseRepository:
                            (username, role, content, msg_type, caption, datetime.datetime.now().isoformat(), thread_id))
             conn.commit()
 
-    def purge_chat_only((self, username: str, thread_id: str = "default"):
+    def purge_chat_only(self, username: str, thread_id: str = "default"):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_history WHERE username=? AND thread_id=?", (username, thread_id))
@@ -767,7 +767,7 @@ if is_admin:
             time.sleep(1)
             st.rerun()
 
-        st.markdown("### ⚡ Rendszer Válaszidő (Latency) Monitor")
+        st.markdown("### 📋 Rendszer Válaszidő (Latency) Monitor")
         latencies = db_repo.fetch_latencies()
         if latencies:
             df_lat = pd.DataFrame(latencies)
