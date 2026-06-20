@@ -86,11 +86,13 @@ if not st.session_state.logged_in_user:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
-active_chat_user = st.session_state.logged_in_user
+# --- 🔄 ADMINISZTRÁTORI ÁLLAPOT ÉS AKTÍV CHAT JAVÍTÁS ---
+is_admin = (st.session_state.logged_in_user == cfg.ADMIN_USERNAME.lower().strip())
 
-# --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
-is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
+if is_admin and "admin_selected_user" in st.session_state:
+    active_chat_user = st.session_state.admin_selected_user
+else:
+    active_chat_user = st.session_state.logged_in_user
 
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
@@ -171,7 +173,7 @@ class DatabaseRepository:
             cursor.execute("SELECT DISTINCT username FROM chat_history")
             return [r[0] for r in cursor.fetchall() if r[0]]
 
-    def get_system_stats(self, username: str) -> dict:
+    def get_system_stats((self, username: str) -> dict:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM chat_history WHERE username=?", (username,))
@@ -195,7 +197,6 @@ class DatabaseRepository:
             cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
             return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
 
-    # --- ÚJ PRÉMIUM INFRASTRUKTÚRA FUNKCIÓK ---
     def fetch_user_documents(self, username: str) -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -308,7 +309,6 @@ class AsyncAIEngine:
             conn.commit()
             p_bar.empty()
 
-    # --- PRÉMIUM MATEMATIKAI KOSZINUSZ-HASONLÓSÁG VEKTOROS KERESŐ ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
         rows = []
@@ -375,7 +375,6 @@ class AsyncAIEngine:
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
-    # --- FEJLETT TEXT-TO-SPEECH PARAMÉTEREZÉS ---
     def text_to_speech(self, text: str, voice: str = "hu-HU-TamasNeural", rate: str = "+0%") -> bytes:
         if not text: return None
         try:
@@ -530,30 +529,6 @@ def get_clean_history(history, max_chars, text_model=None):
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
-    
-    if is_admin:
-        st.markdown("---")
-        with st.expander("👑 Adminisztrációs Panel", expanded=False):
-            all_users = db_repo.get_all_users()
-            if st.session_state.logged_in_user not in all_users:
-                all_users.append(st.session_state.logged_in_user)
-            
-            if "admin_selected_user" not in st.session_state:
-                st.session_state.admin_selected_user = st.session_state.logged_in_user
-
-            selected_user = st.selectbox(
-                "Felhasználó Chat megtekintése:", 
-                all_users, 
-                index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
-            )
-            
-            if selected_user != st.session_state.admin_selected_user:
-                st.session_state.admin_selected_user = selected_user
-                st.rerun()
-                
-            active_chat_user = st.session_state.admin_selected_user
-            st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
-        st.markdown("---")
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -603,7 +578,6 @@ with st.sidebar:
                 st.session_state[f"idx_{uploaded_file.name}"] = True
                 st.sidebar.success(f"✅ Mentve ({size_kb})")
 
-        # --- PRÉMIUM DOKUMENTUM MANÁZSER / LISTÁZÓ ÉS TÖRLŐ ---
         st.markdown("---")
         st.subheader("🗂️ Indexelt Fájlok Kezelése")
         saved_docs = db_repo.fetch_user_documents(active_chat_user)
@@ -624,7 +598,6 @@ with st.sidebar:
         st.subheader("🎙️ Hang rögzítése")
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
-        # --- FEJLETT VOICE PARAMÉTEREK ---
         st.markdown("---")
         voice_char = st.selectbox("TTS Karakter", ["Férfi (Tamás)", "Női (Noémi)"])
         voice_speed = st.select_slider("TTS Olvasási sebesség", options=["-20%", "-10%", "+0%", "+10%", "+20%"], value="+0%")
@@ -687,7 +660,7 @@ tabs = st.tabs(tabs_headers)
 tab_chat = tabs[0]
 tab_monitor = tabs[1]
 
-# --- 📊 SZEMÉLYES STATISZTIKA TAB (TOKEN ÉS KÖLTSÉGBECSLES KIEGÉSZÍTÉSSEL) ---
+# --- 📊 SZEMÉLYES STATISZTIKA TAB ---
 with tab_monitor:
     st.subheader(f"📈 {active_chat_user} Statisztikái")
     stats = db_repo.get_system_stats(active_chat_user)
@@ -700,28 +673,50 @@ with tab_monitor:
     st.subheader("🪙 API Erőforrás Felhasználás és Költségek")
     token_stats = db_repo.fetch_token_stats(active_chat_user)
     total_tokens = token_stats["prompt"] + token_stats["completion"]
-    estimated_cost = (total_tokens / 1_000_000) * 0.15 # Átlagolt $0.15 / 1M token becslés
+    estimated_cost = (total_tokens / 1_000_000) * 0.15
     
     col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1: st.markdown(f'<div class="monitor-card">📥 <b>Prompt Token:</b><br><span style="font-size:18px;color:#a5b4fc;">{token_stats["prompt"]} tk</span></div>', unsafe_allow_html=True)
     with col_t2: st.markdown(f'<div class="monitor-card">📤 <b>Válasz Token:</b><br><span style="font-size:18px;color:#fca5a5;">{token_stats["completion"]} tk</span></div>', unsafe_allow_html=True)
     with col_t3: st.markdown(f'<div class="monitor-card">💵 <b>Becsült Költség:</b><br><span style="font-size:18px;color:#fbbf24;">${estimated_cost:.5f}</span></div>', unsafe_allow_html=True)
 
-# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
+# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB (KÉRÉSRE ÁTHELYEZVE IDE AN ADMIN PANELLEL EGYÜTT) ---
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
         
+        # --- 👑 INTEGRÁLT ADMINISZTRÁCIÓS PANEL ---
+        st.markdown("### 👑 Adminisztrációs Panel")
+        all_users = db_repo.get_all_users()
+        if st.session_state.logged_in_user not in all_users:
+            all_users.append(st.session_state.logged_in_user)
+        
+        if "admin_selected_user" not in st.session_state:
+            st.session_state.admin_selected_user = st.session_state.logged_in_user
+
+        selected_user = st.selectbox(
+            "Felhasználó Chat megtekintése:", 
+            all_users, 
+            index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
+        )
+        
+        if selected_user != st.session_state.admin_selected_user:
+            st.session_state.admin_selected_user = selected_user
+            st.rerun()
+            
+        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        st.markdown("---")
+        
         # --- ADMIN FELHASZNÁLÓ TÖRLÉS ---
         st.markdown("### 👥 Felhasználó Kezelés")
-        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének végleges törlése", type="primary"):
-            db_repo.purge_chat_only(st.session_state.admin_selected_user)
-            st.success(f"{st.session_state.admin_selected_user} előzményei törölve!")
+        if st.button(f"🗑️ '{active_chat_user}' beszélgetésének végleges törlése", type="primary"):
+            db_repo.purge_chat_only(active_chat_user)
+            st.success(f"{active_chat_user} előzményei törölve!")
             time.sleep(1)
             st.rerun()
 
-        # --- PRÉMIUM ÉLŐ SESSION MONITOR ---
+        # --- ÉLŐ SESSION MONITOR ---
         st.markdown("---")
         st.markdown("### 👁️ Élő Felhasználói Session Monitor")
         sessions = db_repo.fetch_global_sessions()
@@ -730,7 +725,7 @@ if is_admin:
         else:
             st.info("Nincs rögzített munkamenet.")
 
-        # --- PRÉMIUM BROADCAST RENDSZER BEÁLLÍTÁSA ---
+        # --- BROADCAST RENDSZER BEÁLLÍTÁSA ---
         st.markdown("---")
         st.markdown("### 📢 Rendszerszintű Értesítések Küldése (Broadcast)")
         bc_msg = st.text_input("Globális üzenet szövege:", value=db_repo.fetch_active_broadcast())
@@ -775,7 +770,6 @@ with tab_chat:
                 st.write(content)
                 if msg["role"] == "assistant":
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
-                        # Dinamikusan konfigurált TTS meghívása
                         audio_data = ai_engine.text_to_speech(content, voice=selected_voice, rate=voice_speed)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
 
@@ -829,14 +823,12 @@ with tab_chat:
                 context_addition = ""
                 web_sources_text = ""
                 
-                # --- PRÉMIUM MATEMATIKAI KOSZINUSZ-HASONLÓSÁG RAG BEÁLLÍTÁSA ---
                 rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
                 if rag_results:
                     rag_ctx_str = "\n".join([f"[Forrás: {r['source']} (Hasonlóság: {r['score']:.2f})]: {r['text']}" for r in rag_results])
                     context_addition += f"\n\nFONTOS HELYI DOKUMENTUM KONTEXTUSOK:\n{rag_ctx_str}"
                     st.toast("📚 Releváns személyes emlékek betöltve a memóriából!", icon="🧠")
 
-                # --- 2. FUNKCIÓ: Webes Keresés Trigger ---
                 web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
                 if any(w in user_input.lower() for w in web_triggers):
                     st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
@@ -849,10 +841,8 @@ with tab_chat:
                             if sources:
                                 web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
 
-                # Üzenetek összeállítása az LLM számára
                 messages = [{"role": "system", "content": system_prompt + context_addition}]
                 
-                # Utolsó pár üzenet betöltése a memóriából
                 for msg in chat_history[-6:]:
                     if msg["type"] == "text":
                         messages.append({"role": msg["role"], "content": msg["content"]})
@@ -865,17 +855,14 @@ with tab_chat:
                         full_response += chunk
                         response_placeholder.markdown(full_response + "▌")
                 
-                # Kattintható források hozzáfűzése
                 if web_sources_text:
                     full_response += web_sources_text
                     
                 response_placeholder.markdown(full_response)
                 
-                # Válaszidő rögzítése
                 end_time = time.perf_counter()
                 db_repo.log_latency(end_time - start_time)
                 
-                # Token statisztika rögzítése a háttérben
                 if st.session_state.last_usage:
                     db_repo.log_token_usage(
                         active_chat_user, 
