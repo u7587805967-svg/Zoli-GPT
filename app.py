@@ -177,6 +177,20 @@ class DatabaseRepository:
             c_count = cursor.fetchone()[0]
             return {"history": h_count, "docs": d_count, "chunks": c_count}
 
+    # --- 5. FUNKCIÓ: ADMIN LATENCY LOGOLÁS ---
+    def log_latency(self, duration: float):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO latency_logs (duration, timestamp) VALUES (?, ?)",
+                           (duration, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_latencies(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
+            return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
+
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
@@ -571,6 +585,25 @@ if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
+        
+        # --- 5. FUNKCIÓ: ADMIN FELHASZNÁLÓ TÖRLÉS ---
+        st.markdown("### 👥 Felhasználó Kezelés")
+        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének végleges törlése", type="primary"):
+            db_repo.purge_chat_only(st.session_state.admin_selected_user)
+            st.success(f"{st.session_state.admin_selected_user} előzményei törölve!")
+            time.sleep(1)
+            st.rerun()
+
+        # --- 5. FUNKCIÓ: ADMIN LATENCY CHART ---
+        st.markdown("### ⚡ Rendszer Válaszidő (Latency) Monitor")
+        latencies = db_repo.fetch_latencies()
+        if latencies:
+            df_lat = pd.DataFrame(latencies)
+            df_lat['timestamp'] = pd.to_datetime(df_lat['timestamp'])
+            df_lat = df_lat.set_index('timestamp')
+            st.line_chart(df_lat['duration'], y_label="Válaszidő (másodperc)")
+        else:
+            st.info("Még nincs rögzített válaszidő adat az adatbázisban.")
 
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
@@ -635,3 +668,53 @@ with tab_chat:
                     if url:
                         st.video(url)
                         db_repo.log_message(active_chat_user, "assistant", url, "video")
+            else:
+                # --- A SZÖVEGES VÁLASZ GENERÁLÁS BEFEJEZÉSE ÉS A 2/5-ÖS FUNKCIÓ BEÉPÍTÉSE ---
+                start_time = time.perf_counter()
+                
+                system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                context_addition = ""
+                web_sources_text = ""
+                
+                # --- 2. FUNKCIÓ: Webes Keresés Trigger ---
+                web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
+                if any(w in user_input.lower() for w in web_triggers):
+                    st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
+                    with st.spinner("🌐 Böngészés a weben..."):
+                        web_results = ai_engine.search_web_sync(user_input)
+                        if web_results:
+                            context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
+                            
+                            # Források kigyűjtése a megjelenítéshez
+                            sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
+                            if sources:
+                                web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
+
+                # Üzenetek összeállítása az LLM számára
+                messages = [{"role": "system", "content": system_prompt + context_addition}]
+                
+                # Utolsó pár üzenet betöltése a memóriából
+                for msg in chat_history[-6:]:
+                    if msg["type"] == "text":
+                        messages.append({"role": msg["role"], "content": msg["content"]})
+                
+                messages.append({"role": "user", "content": user_input})
+                
+                full_response = ""
+                with st.spinner("Gondolkodom..."):
+                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages):
+                        full_response += chunk
+                        response_placeholder.markdown(full_response + "▌")
+                
+                # --- 2. FUNKCIÓ: Kattintható források hozzáfűzése ---
+                if web_sources_text:
+                    full_response += web_sources_text
+                    
+                response_placeholder.markdown(full_response)
+                
+                # --- 5. FUNKCIÓ: Rendszer Latency log rögzítése ---
+                end_time = time.perf_counter()
+                db_repo.log_latency(end_time - start_time)
+                
+                db_repo.log_message(active_chat_user, "assistant", full_response, "text")
+                st.rerun()
