@@ -83,13 +83,11 @@ if not st.session_state.logged_in_user:
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 🔄 BIZTONSÁGOS ADMINISZTRÁTORI ÁLLAPOT ÉS AKTÍV CHAT JAVÍTÁS ---
-is_admin = (st.session_state.logged_in_user == cfg.ADMIN_USERNAME.lower().strip())
+# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
+active_chat_user = st.session_state.logged_in_user
 
-if is_admin and "admin_selected_user" in st.session_state:
-    active_chat_user = st.session_state.admin_selected_user
-else:
-    active_chat_user = st.session_state.logged_in_user
+# --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
+is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
 # --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
@@ -138,28 +136,32 @@ class DatabaseRepository:
     def _init_schema(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT, thread_id TEXT DEFAULT 'default')''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
+            try:
+                cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
+            except sqlite3.OperationalError: pass
             conn.commit()
 
-    def fetch_history(self, username: str) -> list:
+    def fetch_history(self, username: str, thread_id: str = "default") -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT role, content, type, caption FROM chat_history WHERE username=? ORDER BY id ASC", (username,))
+            cursor.execute("SELECT role, content, type, caption FROM chat_history WHERE username=? AND thread_id=? ORDER BY id ASC", (username, thread_id))
             return [{"role": r[0], "content": r[1], "type": r[2], "caption": r[3]} for r in cursor.fetchall()]
 
-    def log_message(self, username: str, role: str, content: str, msg_type: str = "text", caption: str = ""):
+    def log_message(self, username: str, role: str, content: str, msg_type: str = "text", caption: str = "", thread_id: str = "default"):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO chat_history (username, role, content, type, caption, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                           (username, role, content, msg_type, caption, datetime.datetime.now().isoformat()))
+            cursor.execute("INSERT INTO chat_history (username, role, content, type, caption, timestamp, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (username, role, content, msg_type, caption, datetime.datetime.now().isoformat(), thread_id))
             conn.commit()
 
-    def purge_chat_only(self, username: str):
+    def purge_chat_only(self, username: str, thread_id: str = "default"):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM chat_history WHERE username=?", (username,))
+            cursor.execute("DELETE FROM chat_history WHERE username=? AND thread_id=?", (username, thread_id))
             conn.commit()
 
     def get_all_users(self) -> list:
@@ -191,6 +193,45 @@ class DatabaseRepository:
             cursor = conn.cursor()
             cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
             return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
+
+    # --- 2. FUNKCIÓ METÓDUS: SZÁLAK LEKÉRDEZÉSE ---
+    def fetch_threads(self, username: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT thread_id FROM chat_history WHERE username=?", (username,))
+            threads = [r[0] for r in cursor.fetchall() if r[0]]
+            if "default" not in threads:
+                threads.insert(0, "default")
+            return threads
+
+    # --- 3. FUNKCIÓ METÓDUSOK: TOKEN ÉS KÖLTSÉG MENTÉS ---
+    def log_tokens(self, username: str, tokens: int, model: str):
+        cost = tokens * 0.0000006  # Átlagolt Groq becsült költség / token
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO token_logs (username, tokens, cost, timestamp) VALUES (?, ?, ?, ?)",
+                           (username, tokens, cost, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_token_stats(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, tokens, cost, timestamp FROM token_logs ORDER BY id ASC")
+            return [{"username": r[0], "tokens": r[1], "cost": r[2], "timestamp": r[3]} for r in cursor.fetchall()]
+
+    # --- 4. FUNKCIÓ METÓDUSOK: DOKUMENTUM MENEDZSER ---
+    def fetch_user_documents(self, username: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT doc_name, file_size FROM document_vectors WHERE username=?", (username,))
+            return [{"doc_name": r[0], "file_size": r[1]} for r in cursor.fetchall()]
+
+    def delete_document(self, username: str, doc_name: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
+            conn.commit()
+
 
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
@@ -281,17 +322,20 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
-    def safe_ollama_chat_stream(self, model: str, messages: list):
+    # --- 3. MÓDOSÍTÁS: Usage kinyerése a Groq folyamból ---
+    def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
             st.error("❌ Hiányzó Groq API kulcs!")
             yield "Hiba: Nincs konfigurálva API kulcs."
             return
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0, stream_options={"include_usage": True})
             for chunk in stream:
-                if chunk.choices[0].delta.content:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+                if username and hasattr(chunk, 'usage') and chunk.usage is not None:
+                    self.db.log_tokens(username, chunk.usage.total_tokens, model)
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
@@ -444,6 +488,51 @@ def get_clean_history(history, max_chars, text_model=None):
 # --- ⚙️ OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
+    
+    # --- 2. FUNKCIÓ: TÖBBSZÁLÚ BESZÉLGETÉSEK SZAKASZ ---
+    if "current_thread" not in st.session_state:
+        st.session_state.current_thread = "default"
+        
+    user_threads = db_repo.fetch_threads(active_chat_user)
+    st.subheader("🧵 Csevegési szálak")
+    selected_thread = st.selectbox("Válassz szálat:", user_threads, index=user_threads.index(st.session_state.current_thread) if st.session_state.current_thread in user_threads else 0)
+    if selected_thread != st.session_state.current_thread:
+        st.session_state.current_thread = selected_thread
+        st.rerun()
+        
+    new_thread_name = st.text_input("➕ Új szál neve:", placeholder="pl. Munka, Programozás...")
+    if st.button("Új szál létrehozása", use_container_width=True):
+        cleaned_thread = new_thread_name.strip()
+        if cleaned_thread and cleaned_thread not in user_threads:
+            st.session_state.current_thread = cleaned_thread
+            db_repo.log_message(active_chat_user, "system", f"Szál létrehozva: {cleaned_thread}", "text", thread_id=cleaned_thread)
+            st.success(f"Szál elindítva: {cleaned_thread}")
+            time.sleep(0.5)
+            st.rerun()
+
+    if is_admin:
+        st.markdown("---")
+        with st.expander("👑 Adminisztrációs Panel", expanded=False):
+            all_users = db_repo.get_all_users()
+            if st.session_state.logged_in_user not in all_users:
+                all_users.append(st.session_state.logged_in_user)
+            
+            if "admin_selected_user" not in st.session_state:
+                st.session_state.admin_selected_user = st.session_state.logged_in_user
+
+            selected_user = st.selectbox(
+                "Felhasználó Chat megtekintése:", 
+                all_users, 
+                index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
+            )
+            
+            if selected_user != st.session_state.admin_selected_user:
+                st.session_state.admin_selected_user = selected_user
+                st.rerun()
+                
+            active_chat_user = st.session_state.admin_selected_user
+            st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
+        st.markdown("---")
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
@@ -489,6 +578,8 @@ with st.sidebar:
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
+        # --- 7. FUNKCIÓ: WALKIE-TALKIE SWITCH ---
+        st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
         if st.session_state.get("voice_playing", False):
@@ -505,7 +596,8 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-chat_history = db_repo.fetch_history(active_chat_user)
+# --- 2. MÓDOSÍTÁS: Az aktív szál történetének betöltése ---
+chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
@@ -534,7 +626,28 @@ if audio:
                 )
                 transcribed_text = translation.text.strip() if translation.text else ""
                 if transcribed_text:
-                    st.session_state.voice_text = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+                    processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
+                    st.session_state.voice_text = processed_voice
+                    
+                    # --- 7. FUNKCIÓ: WALKIE-TALKIE AZONNALI FELDOLGOZÁSI CIKLUS ---
+                    if st.session_state.get("walkie_talkie", False):
+                        current_tid = st.session_state.get("current_thread", "default")
+                        db_repo.log_message(active_chat_user, "user", processed_voice, thread_id=current_tid)
+                        
+                        system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                        messages = [{"role": "system", "content": system_prompt}]
+                        current_thread_hist = db_repo.fetch_history(active_chat_user, thread_id=current_tid)
+                        for msg in current_thread_hist[-6:]:
+                            if msg["type"] == "text":
+                                messages.append({"role": msg["role"], "content": msg["content"]})
+                        
+                        full_resp = ""
+                        for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
+                            full_resp += chunk
+                        
+                        db_repo.log_message(active_chat_user, "assistant", full_resp, "text", thread_id=current_tid)
+                        st.session_state.voice_text = ""
+                        st.rerun()
             else:
                 st.error("Groq API kulcs hiányzik a hangfeldolgozáshoz!")
         except Exception as e: st.error(f"Groq Whisper hiba: {e}")
@@ -557,38 +670,33 @@ with tab_monitor:
     with col_m2: st.markdown(f'<div class="monitor-card">📄 <b>Saját fájlok:</b><br><span style="font-size:20px;color:#6366f1;">{stats["docs"]} db</span></div>', unsafe_allow_html=True)
     with col_m3: st.markdown(f'<div class="monitor-card">🧩 <b>Információ egységek:</b><br><span style="font-size:20px;color:#06b6d4;">{stats["chunks"]} db</span></div>', unsafe_allow_html=True)
 
+    # --- 4. FUNKCIÓ: FEJLETTEBB DOKUMENTUMKEZELŐ (RAG) MENEDZSER FELÜLET ---
+    st.markdown("### 🗂️ Saját indexelt fájljaim")
+    user_docs = db_repo.fetch_user_documents(active_chat_user)
+    if user_docs:
+        for doc in user_docs:
+            d_col1, d_col2 = st.columns([4, 1])
+            with d_col1:
+                st.markdown(f"📄 **{doc['doc_name']}** ({doc['file_size']})")
+            with d_col2:
+                if st.button("🗑️ Törlés", key=f"del_doc_{doc['doc_name']}", use_container_width=True):
+                    db_repo.delete_document(active_chat_user, doc['doc_name'])
+                    st.success(f"Törölve: {doc['doc_name']}")
+                    time.sleep(0.5)
+                    st.rerun()
+    else:
+        st.info("Nincsenek feltöltött dokumentumaid.")
+
 # --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
         st.info(f"Sikeres adminisztrátori belépés. Azonosított fiók: {st.session_state.logged_in_user}")
         
-        # --- 👑 INTEGRÁLT ADMINISZTRÁCIÓS PANEL (KÉRÉSRE IDE ÁTHELYEZVE) ---
-        st.markdown("### 👑 Adminisztrációs Panel")
-        all_users = db_repo.get_all_users()
-        if st.session_state.logged_in_user not in all_users:
-            all_users.append(st.session_state.logged_in_user)
-        
-        if "admin_selected_user" not in st.session_state:
-            st.session_state.admin_selected_user = st.session_state.logged_in_user
-
-        selected_user = st.selectbox(
-            "Felhasználó Chat megtekintése:", 
-            all_users, 
-            index=all_users.index(st.session_state.admin_selected_user) if st.session_state.admin_selected_user in all_users else 0
-        )
-        
-        if selected_user != st.session_state.admin_selected_user:
-            st.session_state.admin_selected_user = selected_user
-            st.rerun()
-            
-        st.info(f"Jelenleg **{active_chat_user}** chatjét látod.")
-        st.markdown("---")
-        
         # --- 5. FUNKCIÓ: ADMIN FELHASZNÁLÓ TÖRLÉS ---
         st.markdown("### 👥 Felhasználó Kezelés")
-        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének végleges törlése", type="primary"):
-            db_repo.purge_chat_only(st.session_state.admin_selected_user)
+        if st.button(f"🗑️ '{st.session_state.admin_selected_user}' beszélgetésének véglegen törlése", type="primary"):
+            db_repo.purge_chat_only(st.session_state.admin_selected_user, thread_id=st.session_state.get("current_thread", "default"))
             st.success(f"{st.session_state.admin_selected_user} előzményei törölve!")
             time.sleep(1)
             st.rerun()
@@ -604,12 +712,30 @@ if is_admin:
         else:
             st.info("Még nincs rögzített válaszidő adat az adatbázisban.")
 
+        # --- 3. FUNKCIÓ: TOKEN- ÉS KÖLTSÉGFIGYELŐ DIAGRAM ÉS ADATOK ---
+        st.markdown("### 🪙 Token- és Költségfigyelő (Groq Usage)")
+        token_stats = db_repo.fetch_token_stats()
+        if token_stats:
+            df_tok = pd.DataFrame(token_stats)
+            df_tok['timestamp'] = pd.to_datetime(df_tok['timestamp'])
+            
+            total_tokens = df_tok['tokens'].sum()
+            total_cost = df_tok['cost'].sum()
+            
+            col_t1, col_t2 = st.columns(2)
+            with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
+            with col_t2: st.metric("Becsült összköltség", f"${total_cost:.4f}")
+            
+            st.dataframe(df_tok.tail(30), use_container_width=True)
+        else:
+            st.info("Még nincs rögzített token használati adat.")
+
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
     col_left, col_right = st.columns([5, 2])
     with col_right:
         if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
-            db_repo.purge_chat_only(active_chat_user)
+            db_repo.purge_chat_only(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
             st.rerun()
 
     for idx, msg in enumerate(chat_history):
@@ -649,7 +775,7 @@ with tab_chat:
         st.session_state.mute_voice = False
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
-        db_repo.log_message(active_chat_user, "user", user_input)
+        db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
 
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
@@ -660,13 +786,13 @@ with tab_chat:
                     url = ai_engine.generate_image(user_input, TEXT_MODEL)
                     if url:
                         st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
-                        db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input)
+                        db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
             elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
                 with st.spinner("🎬 AI Videógenerálás..."):
                     url = ai_engine.generate_video(user_input, TEXT_MODEL)
                     if url:
                         st.video(url)
-                        db_repo.log_message(active_chat_user, "assistant", url, "video")
+                        db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
             else:
                 # --- A SZÖVEGES VÁLASZ GENERÁLÁS BEFEJEZÉSE ÉS A 2/5-ÖS FUNKCIÓ BEÉPÍTÉSE ---
                 start_time = time.perf_counter()
@@ -701,7 +827,7 @@ with tab_chat:
                 
                 full_response = ""
                 with st.spinner("Gondolkodom..."):
-                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages):
+                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
                         full_response += chunk
                         response_placeholder.markdown(full_response + "▌")
                 
@@ -715,5 +841,5 @@ with tab_chat:
                 end_time = time.perf_counter()
                 db_repo.log_latency(end_time - start_time)
                 
-                db_repo.log_message(active_chat_user, "assistant", full_response, "text")
+                db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
                 st.rerun()
