@@ -44,7 +44,10 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 # --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
+# Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
 if "generating" not in st.session_state:
+    st.session_state.generating = False
+else:
     st.session_state.generating = False
 
 # --- BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
@@ -148,7 +151,6 @@ class DatabaseRepository:
                 cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
             except sqlite3.OperationalError: pass
             
-            # --- JAVÍTÁS: Strukturális oszlop-ellenőrzés a token_logs táblához az OperationalError ellen ---
             try:
                 cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
             except sqlite3.OperationalError: pass
@@ -213,7 +215,6 @@ class DatabaseRepository:
             cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
             return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
 
-    # --- 2. FUNKCIÓ METÓDUS: SZÁLAK LEKÉRDEZÉSE ---
     def fetch_threads(self, username: str) -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -223,9 +224,8 @@ class DatabaseRepository:
                 threads.insert(0, "default")
             return threads
 
-    # --- 3. FUNKCIÓ METÓDUSOK: TOKEN ÉS KÖLTSÉG MENTÉS ---
     def log_tokens(self, username: str, tokens: int, model: str):
-        cost = tokens * 0.0000006  # Átlagolt Groq becsült költség / token
+        cost = tokens * 0.0000006
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO token_logs (username, tokens, cost, timestamp) VALUES (?, ?, ?, ?)",
@@ -238,7 +238,6 @@ class DatabaseRepository:
             cursor.execute("SELECT username, tokens, cost, timestamp FROM token_logs ORDER BY id ASC")
             return [{"username": r[0], "tokens": r[1], "cost": r[2], "timestamp": r[3]} for r in cursor.fetchall()]
 
-    # --- 4. FUNKCIÓ METÓDUSOK: DOKUMENTUM MENEDZSER ---
     def fetch_user_documents(self, username: str) -> list:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -341,7 +340,6 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
-    # --- JAVÍTÁS: A hiba elkerülése érdekében törölve a nem támogatott 'stream_options' paraméter ---
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
             st.error("❌ Hiányzó Groq API kulcs!")
@@ -351,7 +349,6 @@ class AsyncAIEngine:
             client = Groq(api_key=GROQ_API_KEY)
             stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
             
-            # Becsült token-számlálás a válasz közben a statisztika folyamatosságához
             estimated_tokens = 0
             for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
@@ -797,58 +794,64 @@ with tab_chat:
             status_placeholder = st.empty()
             response_placeholder = st.empty()
             
-            if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
-                with st.spinner("🎨 AI Képgenerálás..."):
-                    url = ai_engine.generate_image(user_input, TEXT_MODEL)
-                    if url:
-                        st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
-                        db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-            elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
-                with st.spinner("🎬 AI Videógenerálás..."):
-                    url = ai_engine.generate_video(user_input, TEXT_MODEL)
-                    if url:
-                        st.video(url)
-                        db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
-            else:
-                start_time = time.perf_counter()
-                
-                system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
-                context_addition = ""
-                web_sources_text = ""
-                
-                web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
-                if any(w in user_input.lower() for w in web_triggers):
-                    st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
-                    with st.spinner("🌐 Böngészés a weben..."):
-                        web_results = ai_engine.search_web_sync(user_input)
-                        if web_results:
-                            context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
-                            
-                            sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
-                            if sources:
-                                web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
-
-                messages = [{"role": "system", "content": system_prompt + context_addition}]
-                
-                for msg in chat_history[-6:]:
-                    if msg["type"] == "text":
-                        messages.append({"role": msg["role"], "content": msg["content"]})
-                
-                messages.append({"role": "user", "content": user_input})
-                
-                full_response = ""
-                with st.spinner("Gondolkodom..."):
-                    for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
-                        full_response += chunk
-                        response_placeholder.markdown(full_response + "▌")
-                
-                if web_sources_text:
-                    full_response += web_sources_text
+            # Try...finally blokk, ami garantálja, hogy a kód lefutása VAGY hibája után a zár feloldódik
+            try:
+                if any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"]):
+                    with st.spinner("🎨 AI Képgenerálás..."):
+                        url = ai_engine.generate_image(user_input, TEXT_MODEL)
+                        if url:
+                            st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
+                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
+                elif any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás"]):
+                    with st.spinner("🎬 AI Videógenerálás..."):
+                        url = ai_engine.generate_video(user_input, TEXT_MODEL)
+                        if url:
+                            st.video(url)
+                            db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
+                else:
+                    start_time = time.perf_counter()
                     
-                response_placeholder.markdown(full_response)
-                
-                end_time = time.perf_counter()
-                db_repo.log_latency(end_time - start_time)
-                
-                db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
+                    system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                    context_addition = ""
+                    web_sources_text = ""
+                    
+                    web_triggers = ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"]
+                    if any(w in user_input.lower() for w in web_triggers):
+                        st.toast("🔍 Webes keresés indítása a friss adatokért...", icon="🌐")
+                        with st.spinner("🌐 Böngészés a weben..."):
+                            web_results = ai_engine.search_web_sync(user_input)
+                            if web_results:
+                                context_addition = f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
+                                
+                                sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
+                                if sources:
+                                    web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
+
+                    messages = [{"role": "system", "content": system_prompt + context_addition}]
+                    
+                    for msg in chat_history[-6:]:
+                        if msg["type"] == "text":
+                            messages.append({"role": msg["role"], "content": msg["content"]})
+                    
+                    messages.append({"role": "user", "content": user_input})
+                    
+                    full_response = ""
+                    with st.spinner("Gondolkodom..."):
+                        for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
+                            full_response += chunk
+                            response_placeholder.markdown(full_response + "▌")
+                    
+                    if web_sources_text:
+                        full_response += web_sources_text
+                        
+                    response_placeholder.markdown(full_response)
+                    
+                    end_time = time.perf_counter()
+                    db_repo.log_latency(end_time - start_time)
+                    
+                    db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
+            
+            finally:
+                # Kényszerített feloldás a végén
+                st.session_state.generating = False
                 st.rerun()
