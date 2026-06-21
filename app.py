@@ -54,7 +54,7 @@ else:
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
-# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NCS SESSION) ---
+# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
@@ -482,7 +482,7 @@ class AsyncAIEngine:
 
     def ingest_document(self, text: str, doc_name: str, username: str, text_model: str, file_size_str: str):
         if not text: return
-        chunks = self.smart_chunk_text(text, self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
+        chunks = self.smart_chunk_text(self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
         
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
@@ -622,7 +622,18 @@ class AsyncAIEngine:
                 res = client.chat.completions.create(
                     model=text_model, 
                     messages=[
-                        {"role": "system", "content": "You are a specialized image prompt translator. Your ONLY job is to translate the user request into a short, descriptive English image generation prompt. CRITICAL: Do NOT write introductions, explanations, greetings, or descriptions. Do NOT reply in Hungarian. Output ONLY the raw English translation prompt text."},
+                        {
+                            "role": "system", 
+                            "content": (
+                                "You are a strict translator for an image generation tool. "
+                                "Your ONLY task is to translate the user's request into a short, descriptive English prompt. "
+                                "CRITICAL RULES:\n"
+                                "1. Never introduce yourself.\n"
+                                "2. Never say 'Here is your prompt' or 'Szia! Zoli vagyok'.\n"
+                                "3. Do NOT write in Hungarian.\n"
+                                "4. Output ONLY the raw English translation, nothing else."
+                            )
+                        },
                         {"role": "user", "content": clean_query}
                     ], 
                     timeout=10.0
@@ -1096,9 +1107,6 @@ with tab_chat:
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
 
-        # Új kapcsoló: eldönti, kell-e st.rerun a kód végén
-        should_rerun = True
-
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
             response_placeholder = st.empty()
@@ -1114,7 +1122,6 @@ with tab_chat:
                         if url:
                             st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                             db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                            should_rerun = False  # Képgenerálásnál megakadályozzuk az azonnali rerun-t!
                 elif is_video_request:
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
@@ -1125,7 +1132,6 @@ with tab_chat:
                             else:
                                 st.video(url)
                             db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
-                            should_rerun = False  # Videógenerálásnál megakadályozzuk az azonnali rerun-t!
                 else:
                     start_time = time.perf_counter()
                     
@@ -1207,5 +1213,5 @@ with tab_chat:
                     db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
             
             finally:
-                # Kényszerített feloldás a végén
+                # Kényszerített feloldás a végén - st.rerun() törölve az infinite loop és képeltűnés megakadályozására
                 st.session_state.generating = False
