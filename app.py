@@ -1201,4 +1201,4 @@ with tab_chat:
             finally:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
-                st.rerun()
+               
