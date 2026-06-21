@@ -1209,6 +1209,3 @@ with tab_chat:
             finally:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
-                # Csak akkor hívjuk meg az st.rerun()-t, ha nem kép/videó készült
-                if should_rerun:
-                    st.rerun()
