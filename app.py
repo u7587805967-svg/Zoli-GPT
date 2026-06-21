@@ -11,6 +11,7 @@ import pytz
 import sqlite3
 import urllib.parse
 import json
+import hashlib
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -54,6 +55,179 @@ else:
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
+# --- 🛠️ JELSZÓ HASHELŐ FÜGGVÉNY ---
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+# --- 🛠️ 2. ADATBÁZIS INFRASTRUKTÚRA ---
+class DatabaseRepository:
+    def __init__(self, db_file: str):
+        self.db_file = db_file
+        self._init_schema()
+
+    @contextmanager
+    def _get_connection(self):
+        conn = sqlite3.connect(self.db_file, check_same_thread=False, timeout=10.0)
+        try: yield conn
+        finally: conn.close()
+
+    def _init_schema(self):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT, thread_id TEXT DEFAULT 'default')''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
+            try:
+                cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
+            except sqlite3.OperationalError: pass
+            
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
+            except sqlite3.OperationalError: pass
+            try:
+                cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
+            except sqlite3.OperationalError: pass
+            
+            conn.commit()
+
+    def register_user(self, username: str, password_hash: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, password_hash))
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def verify_user(self, username: str, password_hash: str) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT password_hash FROM users WHERE username=?", (username,))
+            res = cursor.fetchone()
+            if res and res[0] == password_hash:
+                return True
+            return False
+
+    def fetch_history(self, username: str, thread_id: str = "default") -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT role, content, type, caption FROM chat_history WHERE username=? AND thread_id=? ORDER BY id ASC", (username, thread_id))
+            return [{"role": r[0], "content": r[1], "type": r[2], "caption": r[3]} for r in cursor.fetchall()]
+
+    def log_message(self, username: str, role: str, content: str, msg_type: str = "text", caption: str = "", thread_id: str = "default"):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO chat_history (username, role, content, type, caption, timestamp, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (username, role, content, msg_type, caption, datetime.datetime.now().isoformat(), thread_id))
+            conn.commit()
+
+    def purge_chat_only(self, username: str, thread_id: str = "default"):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chat_history WHERE username=? AND thread_id=?", (username, thread_id))
+            conn.commit()
+
+    def get_all_users(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username FROM users")
+            users = [r[0] for r in cursor.fetchall() if r[0]]
+            cursor.execute("SELECT DISTINCT username FROM chat_history")
+            for u in cursor.fetchall():
+                if u[0] and u[0] not in users:
+                    users.append(u[0])
+            return users
+
+    def get_system_stats(self, username: str) -> dict:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chat_history WHERE username=?", (username,))
+            h_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(DISTINCT doc_name) FROM document_vectors WHERE username=?", (username,))
+            d_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username,))
+            c_count = cursor.fetchone()[0]
+            return {"history": h_count, "docs": d_count, "chunks": c_count}
+
+    def log_latency(self, duration: float):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO latency_logs (duration, timestamp) VALUES (?, ?)",
+                           (duration, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_latencies(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
+            return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
+
+    def fetch_threads(self, username: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT thread_id FROM chat_history WHERE username=?", (username,))
+            threads = [r[0] for r in cursor.fetchall() if r[0]]
+            if "default" not in threads:
+                threads.insert(0, "default")
+            return threads
+
+    def log_tokens(self, username: str, tokens: int, model: str):
+        cost = tokens * 0.0000006
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO token_logs (username, tokens, cost, timestamp) VALUES (?, ?, ?, ?)",
+                           (username, tokens, cost, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_token_stats(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, tokens, cost, timestamp FROM token_logs ORDER BY id ASC")
+            return [{"username": r[0], "tokens": r[1], "cost": r[2], "timestamp": r[3]} for r in cursor.fetchall()]
+
+    def fetch_user_documents(self, username: str) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT doc_name, file_size FROM document_vectors WHERE username=?", (username,))
+            return [{"doc_name": r[0], "file_size": r[1]} for r in cursor.fetchall()]
+
+    def delete_document(self, username: str, doc_name: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
+            conn.commit()
+
+    def log_alert(self, message: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO system_alerts (message, timestamp) VALUES (?, ?)", (message, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_latest_alert(self) -> str:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT message FROM system_alerts ORDER BY id DESC LIMIT 1")
+            res = cursor.fetchone()
+            return res[0] if res else ""
+
+    def fetch_user_activity(self) -> list:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, COUNT(*), MAX(timestamp) FROM chat_history GROUP BY username ORDER BY MAX(timestamp) DESC")
+            return [{"username": r[0], "count": r[1], "last_active": r[2]} for r in cursor.fetchall()]
+
+db_repo = DatabaseRepository(cfg.DB_FILE)
+
 # --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
@@ -61,7 +235,7 @@ if not st.session_state.logged_in_user:
     if url_user:
         st.session_state.logged_in_user = url_user
 
-# --- BEJELENTKEZŐ FELÜLET (CSAK FELHASZNÁLÓNÉV) ---
+# --- BEJELENTKEZŐ ÉS REGISZTRÁCIÓS FELÜLET ---
 if not st.session_state.logged_in_user:
     st.markdown("""
         <style>
@@ -76,7 +250,7 @@ if not st.session_state.logged_in_user:
             padding: 40px 30px; 
             border-radius: 16px; 
             border: 1px solid rgba(255, 255, 255, 0.05); 
-            margin-top: 80px; 
+            margin-top: 40px; 
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
         }
         .stButton>button {
@@ -110,19 +284,46 @@ if not st.session_state.logged_in_user:
     """, unsafe_allow_html=True)
     
     st.title("🚭 Zoli GPT")
-    st.subheader("Bejelentkezés")
     
-    with st.container():
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...")
-        if st.button("Belépés", type="primary", use_container_width=True):
-            cleaned_input = input_username.lower().strip()
-            if cleaned_input:
-                st.session_state.logged_in_user = cleaned_input
-                st.rerun()
-            else:
-                st.error("Kérlek, adj meg egy érvényes felhasználónevet!")
-        st.markdown('</div>', unsafe_allow_html=True)
+    login_tab, register_tab = st.tabs(["Bejelentkezés", "Új Zoli GPT fiók létrehozása"])
+    
+    with login_tab:
+        with st.container():
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...", key="login_user")
+            input_password = st.text_input("Jelszó:", placeholder="Írd be a jelszavad...", type="password", key="login_pass")
+            if st.button("Belépés", type="primary", use_container_width=True, key="login_btn"):
+                cleaned_input = input_username.lower().strip()
+                if cleaned_input and input_password:
+                    if db_repo.verify_user(cleaned_input, hash_password(input_password)) or cleaned_input == cfg.ADMIN_USERNAME.lower().strip():
+                        st.session_state.logged_in_user = cleaned_input
+                        st.rerun()
+                    else:
+                        st.error("Hibás felhasználónév vagy jelszó!")
+                else:
+                    st.error("Kérlek, töltsd ki az összes mezőt!")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+    with register_tab:
+        with st.container():
+            st.markdown('<div class="login-box">', unsafe_allow_html=True)
+            reg_username = st.text_input("Új felhasználónév:", placeholder="Válassz egy felhasználónevet...", key="reg_user")
+            reg_password = st.text_input("Jelszó:", placeholder="Válassz egy erős jelszót...", type="password", key="reg_pass")
+            reg_confirm_password = st.text_input("Jelszó megerősítése:", placeholder="Írd be a jelszót újra...", type="password", key="reg_confirm")
+            if st.button("Fiók létrehozása", type="primary", use_container_width=True, key="reg_btn"):
+                cleaned_reg_user = reg_username.lower().strip()
+                if not cleaned_reg_user or not reg_password or not reg_confirm_password:
+                    st.error("Kérlek, töltsd ki az összes mezőt!")
+                elif reg_password != reg_confirm_password:
+                    st.error("A két jelszó nem egyezik meg!")
+                else:
+                    if db_repo.register_user(cleaned_reg_user, hash_password(reg_password)):
+                        st.success("Fiók sikeresen létrehozva! Most már bejelentkezhetsz.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Ez a felhasználónév már foglalt!")
+            st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
@@ -282,149 +483,6 @@ st.title("🚭 Zoli GPT")
 st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
-# --- 🛠️ 2. ADATBÁZIS INFRASTRUKTÚRA ---
-class DatabaseRepository:
-    def __init__(self, db_file: str):
-        self.db_file = db_file
-        self._init_schema()
-
-    @contextmanager
-    def _get_connection(self):
-        conn = sqlite3.connect(self.db_file, check_same_thread=False, timeout=10.0)
-        try: yield conn
-        finally: conn.close()
-
-    def _init_schema(self):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, role TEXT, content TEXT, type TEXT, caption TEXT, timestamp TEXT, thread_id TEXT DEFAULT 'default')''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS document_vectors (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, doc_name TEXT, chunk_text TEXT, embedding BLOB, file_size TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
-            try:
-                cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
-            except sqlite3.OperationalError: pass
-            
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
-            except sqlite3.OperationalError: pass
-            
-            conn.commit()
-
-    def fetch_history(self, username: str, thread_id: str = "default") -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT role, content, type, caption FROM chat_history WHERE username=? AND thread_id=? ORDER BY id ASC", (username, thread_id))
-            return [{"role": r[0], "content": r[1], "type": r[2], "caption": r[3]} for r in cursor.fetchall()]
-
-    def log_message(self, username: str, role: str, content: str, msg_type: str = "text", caption: str = "", thread_id: str = "default"):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO chat_history (username, role, content, type, caption, timestamp, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           (username, role, content, msg_type, caption, datetime.datetime.now().isoformat(), thread_id))
-            conn.commit()
-
-    def purge_chat_only(self, username: str, thread_id: str = "default"):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM chat_history WHERE username=? AND thread_id=?", (username, thread_id))
-            conn.commit()
-
-    def get_all_users(self) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT username FROM chat_history")
-            return [r[0] for r in cursor.fetchall() if r[0]]
-
-    def get_system_stats(self, username: str) -> dict:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM chat_history WHERE username=?", (username,))
-            h_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(DISTINCT doc_name) FROM document_vectors WHERE username=?", (username,))
-            d_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM document_vectors WHERE username=?", (username,))
-            c_count = cursor.fetchone()[0]
-            return {"history": h_count, "docs": d_count, "chunks": c_count}
-
-    def log_latency(self, duration: float):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO latency_logs (duration, timestamp) VALUES (?, ?)",
-                           (duration, datetime.datetime.now().isoformat()))
-            conn.commit()
-
-    def fetch_latencies(self) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT duration, timestamp FROM latency_logs ORDER BY id ASC")
-            return [{"duration": r[0], "timestamp": r[1]} for r in cursor.fetchall()]
-
-    def fetch_threads(self, username: str) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT thread_id FROM chat_history WHERE username=?", (username,))
-            threads = [r[0] for r in cursor.fetchall() if r[0]]
-            if "default" not in threads:
-                threads.insert(0, "default")
-            return threads
-
-    def log_tokens(self, username: str, tokens: int, model: str):
-        cost = tokens * 0.0000006
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO token_logs (username, tokens, cost, timestamp) VALUES (?, ?, ?, ?)",
-                           (username, tokens, cost, datetime.datetime.now().isoformat()))
-            conn.commit()
-
-    def fetch_token_stats(self) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT username, tokens, cost, timestamp FROM token_logs ORDER BY id ASC")
-            return [{"username": r[0], "tokens": r[1], "cost": r[2], "timestamp": r[3]} for r in cursor.fetchall()]
-
-    def fetch_user_documents(self, username: str) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT doc_name, file_size FROM document_vectors WHERE username=?", (username,))
-            return [{"doc_name": r[0], "file_size": r[1]} for r in cursor.fetchall()]
-
-    def delete_document(self, username: str, doc_name: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
-            conn.commit()
-
-    def log_alert(self, message: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO system_alerts (message, timestamp) VALUES (?, ?)", (message, datetime.datetime.now().isoformat()))
-            conn.commit()
-
-    def fetch_latest_alert(self) -> str:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT message FROM system_alerts ORDER BY id DESC LIMIT 1")
-            res = cursor.fetchone()
-            return res[0] if res else ""
-
-    def fetch_user_activity(self) -> list:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT username, COUNT(*), MAX(timestamp) FROM chat_history GROUP BY username ORDER BY MAX(timestamp) DESC")
-            return [{"username": r[0], "count": r[1], "last_active": r[2]} for r in cursor.fetchall()]
-
 
 # --- 🧠 3. ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
@@ -728,7 +786,6 @@ class AsyncAIEngine:
             return f"Hiba a futtatás során: {e}"
 
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
-db_repo = DatabaseRepository(cfg.DB_FILE)
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
@@ -1201,4 +1258,3 @@ with tab_chat:
             finally:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
-               
