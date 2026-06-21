@@ -54,7 +54,7 @@ else:
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
-# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
+# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
@@ -621,7 +621,10 @@ class AsyncAIEngine:
                 client = Groq(api_key=GROQ_API_KEY)
                 res = client.chat.completions.create(
                     model=text_model, 
-                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
+                    messages=[
+                        {"role": "system", "content": "You are a specialized image prompt translator. Your ONLY job is to translate the user request into a short, descriptive English image generation prompt. CRITICAL: Do NOT write introductions, explanations, greetings, or descriptions. Do NOT reply in Hungarian. Output ONLY the raw English translation prompt text."},
+                        {"role": "user", "content": clean_query}
+                    ], 
                     timeout=10.0
                 )
                 translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
@@ -1093,6 +1096,9 @@ with tab_chat:
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
 
+        # Új kapcsoló: eldönti, kell-e st.rerun a kód végén
+        should_rerun = True
+
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
             response_placeholder = st.empty()
@@ -1108,6 +1114,7 @@ with tab_chat:
                         if url:
                             st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
                             db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
+                            should_rerun = False  # Képgenerálásnál megakadályozzuk az azonnali rerun-t!
                 elif is_video_request:
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
@@ -1118,6 +1125,7 @@ with tab_chat:
                             else:
                                 st.video(url)
                             db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
+                            should_rerun = False  # Videógenerálásnál megakadályozzuk az azonnali rerun-t!
                 else:
                     start_time = time.perf_counter()
                     
@@ -1201,4 +1209,6 @@ with tab_chat:
             finally:
                 # Kényszerített feloldás a végén
                 st.session_state.generating = False
-                st.rerun()
+                # Csak akkor hívjuk meg az st.rerun()-t, ha nem kép/videó készült
+                if should_rerun:
+                    st.rerun()
