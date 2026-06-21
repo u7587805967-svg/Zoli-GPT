@@ -1093,7 +1093,8 @@ with tab_chat:
                             with cols[5]:
                                 st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
 
-    default_input = st.session_state.voice_text if st.session_state.voice_text else ""
+    # VÁLTOZTATÁS: Biztonságos .get() lekérdezés használata az AttributeError megakadályozására
+    default_input = st.session_state.get("voice_text", "")
     
     user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     if default_input and not user_input:
