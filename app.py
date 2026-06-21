@@ -482,7 +482,7 @@ class AsyncAIEngine:
 
     def ingest_document(self, text: str, doc_name: str, username: str, text_model: str, file_size_str: str):
         if not text: return
-        chunks = self.smart_chunk_text(self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
+        chunks = self.smart_chunk_text(text, self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
         
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
@@ -621,21 +621,7 @@ class AsyncAIEngine:
                 client = Groq(api_key=GROQ_API_KEY)
                 res = client.chat.completions.create(
                     model=text_model, 
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": (
-                                "You are a strict translator for an image generation tool. "
-                                "Your ONLY task is to translate the user's request into a short, descriptive English prompt. "
-                                "CRITICAL RULES:\n"
-                                "1. Never introduce yourself.\n"
-                                "2. Never say 'Here is your prompt' or 'Szia! Zoli vagyok'.\n"
-                                "3. Do NOT write in Hungarian.\n"
-                                "4. Output ONLY the raw English translation, nothing else."
-                            )
-                        },
-                        {"role": "user", "content": clean_query}
-                    ], 
+                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
                     timeout=10.0
                 )
                 translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
@@ -1093,8 +1079,7 @@ with tab_chat:
                             with cols[5]:
                                 st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
 
-    # VÁLTOZTATÁS: Biztonságos .get() lekérdezés használata az AttributeError megakadályozására
-    default_input = st.session_state.get("voice_text", "")
+    default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
     user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
     if default_input and not user_input:
@@ -1113,9 +1098,9 @@ with tab_chat:
             response_placeholder = st.empty()
             
             try:
-                # --- UPGRADE: Okosabb, flexibilis Regex alapú média detektálás ---
-                is_image_request = re.search(r'\b(kép|generál|rajzol|mutass|illusztráció|fotó)\b', user_input.lower()) and not re.search(r'\b(videó|video|elemzés|elemezd)\b', user_input.lower())
-                is_video_request = re.search(r'\b(videó|video|animáció|mozgás|klip)\b', user_input.lower())
+                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
+                is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
+                is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
                 
                 if is_image_request:
                     with st.spinner("🎨 AI Képgenerálás..."):
@@ -1214,5 +1199,6 @@ with tab_chat:
                     db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
             
             finally:
-                # Kényszerített feloldás a végén - st.rerun() törölve az infinite loop és képeltűnés megakadályozására
+                # Kényszerített feloldás a végén
                 st.session_state.generating = False
+                st.rerun()
