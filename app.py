@@ -28,7 +28,7 @@ from groq import Groq
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
-    ADMIN_USERNAME: str = "BeNi-252514569690023"  # <--- A te pontos felhasználóneved
+    ADMIN_USERNAME: str = st.secrets.get("ADMIN_USERNAME", "default_admin_fallback")  # <--- Biztonságos beolvasás titkokból, nincs hardcoded kulcs
     TIMEZONE: str = "Europe/Budapest"
     PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "") # <--- Biztonságos letöltés a titkokból, nincs hardcoded kulcs
     MAX_HISTORY_CHARS: int = 4000
