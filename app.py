@@ -639,12 +639,66 @@ class AsyncAIEngine:
             clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
         clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
         if not clean_query: return None
+        
+        # 1. Fordítás angolra a Groq segítségével
         try:
             client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": f"Translate to English in 5 words max, no quotes: {clean_query}"}], timeout=10.0)
+            res = client.chat.completions.create(
+                model=text_model, 
+                messages=[{"role": "user", "content": f"Translate to English in 5 words max, dynamic scene: {clean_query}"}], 
+                timeout=10.0
+            )
             en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
-        except Exception: en_query = clean_query
-        return f"https://textmevideo-m97v.pollinations.ai/{urllib.parse.quote(en_query)}"
+        except Exception: 
+            en_query = clean_query
+
+        # 2. Ingyenes AI képgenerálás (A Pollinations kép API-ja teljesen ingyenes és KULCS NÉLKÜLI)
+        try:
+            encoded_prompt = urllib.parse.quote(en_query)
+            image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
+            
+            img_res = httpx.get(image_url, timeout=20.0)
+            if img_res.status_code != 200:
+                return None
+                
+            base_image = Image.open(io.BytesIO(img_res.content))
+            
+            # 3. Animáció készítése tisztán Pythonból (Zoom/Pan effektus)
+            frames = []
+            width, height = base_image.size
+            
+            # 15 képkockát gyártunk le lassan változó kivágással
+            for i in range(15):
+                zoom_factor = 1.0 + (i * 0.006) # Finom közelítés
+                new_w = int(width / zoom_factor)
+                new_h = int(height / zoom_factor)
+                
+                left = (width - new_w) // 2
+                top = (height - new_h) // 2
+                right = left + new_w
+                bottom = top + new_h
+                
+                # Kivágás és visszaméretezés az eredeti méretre
+                frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
+                frames.append(frame)
+            
+            # Elmentjük memóriába mint animált GIF-et (a Streamlit st.video és st.image is lejátssza)
+            output = io.BytesIO()
+            frames[0].save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100, # 100ms képkockánként
+                loop=0
+            )
+            
+            # Átalakítás Base64-é, így menthető az adatbázisodba is
+            b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
+            return f"data:image/gif;base64,{b64_gif}"
+            
+        except Exception:
+            return None
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
@@ -988,7 +1042,12 @@ with tab_chat:
     for idx, msg in enumerate(chat_history):
         with st.chat_message(msg["role"]):
             if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
-            elif msg.get("type") == "video": st.video(msg["content"])
+            elif msg.get("type") == "video": 
+                # Ha animált GIF alapú adatról van szó, st.image-el jelenítjük meg, hogy tökéletesen mozogjon
+                if isinstance(msg["content"], str) and msg["content"].startswith("data:image/gif"):
+                    st.image(msg["content"])
+                else:
+                    st.video(msg["content"])
             else:
                 content = msg["content"]
                 st.write(content)
@@ -1053,7 +1112,11 @@ with tab_chat:
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
                         if url:
-                            st.video(url)
+                            # Mivel az új függvény egy animált b64 gif-el tér vissza, az st.image-el jelenítjük meg azonnal
+                            if url.startswith("data:image/gif"):
+                                st.image(url)
+                            else:
+                                st.video(url)
                             db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
                 else:
                     start_time = time.perf_counter()
