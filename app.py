@@ -1319,7 +1319,7 @@ with tab_chat:
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
                     
-                   try:
+                    try:
     # A log_message bekerül a try blokkba (4 szóközzel beljebb van, mint a try)
     db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
 except Exception as e:
