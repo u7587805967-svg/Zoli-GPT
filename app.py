@@ -1067,11 +1067,11 @@ if is_admin:
             
             # Dinamikus INGYENES percenkénti token korlát (TPM) meghatározása
             model_limits = {
-                "llama-3.3-70b-versatile": 6000,
-                "llama-3.1-8b-instant": 6000,
-                "llama-3.2-11b-vision-preview": 6000,
-                "llama-3.2-3b-preview": 6000,
-                "llama-3.2-11b-text-preview": 6000
+                "llama-3.3-70b-versatile": 100000,
+                "llama-3.1-8b-instant": 500000,
+                "llama-3.2-11b-vision-preview": 500000,
+                "llama-3.2-3b-preview": 500000,
+                "llama-3.2-11b-text-preview": 500000
             }
             max_allowed_tokens = model_limits.get(TEXT_MODEL, 6000)
             
