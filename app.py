@@ -24,6 +24,12 @@ import docx
 from docx import Document
 from groq import Groq
 
+# --- ÚJ IMPORTOK A 2. ÉS 3. PONTHOZ ---
+import requests
+from bs4 import BeautifulSoup
+from RestrictedPython import compile_restricted, safe_builtins
+from RestrictedPython.PrintCollector import PrintCollector
+
 # --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
@@ -665,6 +671,23 @@ class AsyncAIEngine:
                 
         return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
 
+    # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
+    def scrape_url(self, url: str) -> str:
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
+            response = requests.get(url, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Felesleges tagek (script, stílus, navigáció) eltávolítása
+            for tag in soup(["script", "style", "nav", "footer", "aside"]):
+                tag.extract()
+            text = soup.get_text(separator='\n')
+            # Üres sorok és felesleges szóközök takarítása
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            return '\n'.join(lines)[:5000] # Maximális méret limitálása a kontextus ablak védelme miatt
+        except Exception as e:
+            return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
+
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
@@ -773,17 +796,36 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
+    # --- MÓDOSÍTOTT FUNKCIÓ (3. PONT): BIZTONSÁGOSABB PYTHON SANDBOX ---
     def execute_python_sandbox(self, code: str) -> str:
         import sys
-        old_stdout = sys.stdout
-        redirected_output = sys.stdout = io.StringIO()
+        import io
         try:
-            exec(code, {}, {})
+            old_stdout = sys.stdout
+            redirected_output = sys.stdout = io.StringIO()
+            
+            # Restricted környezet beállítása a RestrictedPython segítségével
+            loc = {}
+            glb = safe_builtins.copy()
+            glb['_print_'] = PrintCollector
+            glb['_getattr_'] = getattr
+            glb['_getitem_'] = lambda obj, index: obj[index]
+            glb['_getiter_'] = iter
+            glb['_write_'] = lambda obj: obj
+            
+            # Biztonságos fordítás és futtatás
+            byte_code = compile_restricted(code, '<inline>', 'exec')
+            exec(byte_code, glb, loc)
+            
             sys.stdout = old_stdout
-            return redirected_output.getvalue()
+            output = redirected_output.getvalue()
+            if '_print' in loc:
+                output += loc['_print']()
+                
+            return output if output else "A kód sikeresen lefutott (nincs szöveges kimenet)."
         except Exception as e:
             sys.stdout = old_stdout
-            return f"Hiba a futtatás során: {e}"
+            return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
 
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 ai_engine = AsyncAIEngine(db_repo, cfg)
@@ -1146,6 +1188,10 @@ with tab_chat:
     if user_input:
         st.session_state.generating = True
         st.session_state.mute_voice = False
+        
+        # Módosítás (2. pont miatt): Eltároljuk a nyers inputot a web scrapernek, mielőtt a GDPR anonimizáló törli az URL-eket
+        raw_user_input = user_input 
+        
         user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
@@ -1229,6 +1275,15 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető eredményt.")
 
+                        # --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
+                        urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
+                        if urls_in_input:
+                            agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
+                            for url in urls_in_input:
+                                scraped_text = ai_engine.scrape_url(url)
+                                context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
+                            agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
+
                         agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
@@ -1237,7 +1292,18 @@ with tab_chat:
                         if msg["type"] == "text":
                             messages.append({"role": msg["role"], "content": msg["content"]})
                     
-                    messages.append({"role": "user", "content": user_input})
+                    # --- MULTIMODÁLIS (VISION) CHAT BEKÖTÉSE (1. PONT) ---
+                    if "active_vision_image" in st.session_state and TEXT_MODEL == "llama-3.2-11b-vision-preview":
+                        base64_image = base64.b64encode(st.session_state.active_vision_image).decode('utf-8')
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": raw_user_input},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        })
+                    else:
+                        messages.append({"role": "user", "content": user_input})
                     
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
