@@ -1322,3 +1322,10 @@ with tab_chat:
                         db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
                     except Exception as e:
                         st.error(f"Hiba a naplózás során: {e}")
+            
+            except Exception as main_error:
+                st.error(f"Hiba történt a generálás közben: {main_error}")
+                st.session_state.generating = False
+            
+            finally:
+                st.session_state.generating = False
