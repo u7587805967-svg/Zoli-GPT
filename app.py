@@ -1320,7 +1320,3 @@ with tab_chat:
                     db_repo.log_latency(end_time - start_time)
                     
                     db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
-            
-            finally:
-                # Kényszerített feloldás a végén
-                st.session_state.generating = False
