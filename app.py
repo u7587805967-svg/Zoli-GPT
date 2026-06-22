@@ -1302,9 +1302,46 @@ with tab_chat:
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                             ]
                         })
-                    else:
+else:
                         messages.append({"role": "user", "content": user_input})
                     
+                    # --- NAPTÁR ÉS VILÁGÓRA INTEGRÁCIÓ AZ AI SZÁMÁRA ---
+                    try:
+                        tz_bp = pytz.timezone("Europe/Budapest")
+                        now_bp = datetime.datetime.now(tz_bp)
+                        
+                        current_date_info = f"Mai dátum és pontos idő (Budapest): {now_bp.strftime('%Y-%m-%d %H:%M:%S (%A)')}\n"
+                        
+                        world_clocks = "Világóra (Aktuális idők):\n"
+                        timezones = {
+                            "London": "Europe/London",
+                            "New York": "America/New York",
+                            "Los Angeles": "America/Los Angeles",
+                            "Tokió": "Asia/Tokyo",
+                            "Sydney": "Australia/Sydney"
+                        }
+                        for city, tz_name in timezones.items():
+                            try:
+                                c_tz = pytz.timezone(tz_name)
+                                c_now = datetime.datetime.now(c_tz)
+                                world_clocks += f"- {city}: {c_now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            except Exception:
+                                pass
+                        
+                        system_context = f"\n[Rendszer információ az AI számára - Naptár és Világóra]:\n{current_date_info}{world_clocks}\n"
+                        
+                        # Befecskendezzük a kontextust a legutolsó felhasználói üzenet elé
+                        if messages and messages[-1]["role"] == "user":
+                            if isinstance(messages[-1]["content"], list):
+                                # Ha képes (vision) üzenetről van szó
+                                messages[-1]["content"].insert(0, {"type": "text", "text": system_context})
+                            else:
+                                # Ha sima szöveges üzenetről van szó
+                                messages[-1]["content"] = system_context + messages[-1]["content"]
+                    except Exception as time_err:
+                        pass
+                    # --- INTEGRÁCIÓ VÉGE ---
+
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
                         for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
@@ -1322,10 +1359,3 @@ with tab_chat:
                         db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
                     except Exception as e:
                         st.error(f"Hiba a naplózás során: {e}")
-            
-            except Exception as main_error:
-                st.error(f"Hiba történt a generálás közben: {main_error}")
-                st.session_state.generating = False
-            
-            finally:
-                st.session_state.generating = False
