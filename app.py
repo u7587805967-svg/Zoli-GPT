@@ -888,8 +888,8 @@ with st.sidebar:
         st.subheader("📋 Rendszer Szerepkör Sablonok")
         persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
-            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. A neved: Zoli.",
-            "Code-olás": "Te egy Mérnök vagy. Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
+            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. A neved: Zoli.",
+            "Code-olás": "Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
             "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
             "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
         }    
