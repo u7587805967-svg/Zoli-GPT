@@ -1302,14 +1302,13 @@ with tab_chat:
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                             ]
                         })
-else:
+                    else:
                         messages.append({"role": "user", "content": user_input})
                     
                     # --- NAPTÁR ÉS VILÁGÓRA INTEGRÁCIÓ AZ AI SZÁMÁRA ---
                     try:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
-                        
                         current_date_info = f"Mai dátum és pontos idő (Budapest): {now_bp.strftime('%Y-%m-%d %H:%M:%S (%A)')}\n"
                         
                         world_clocks = "Világóra (Aktuális idők):\n"
@@ -1330,15 +1329,12 @@ else:
                         
                         system_context = f"\n[Rendszer információ az AI számára - Naptár és Világóra]:\n{current_date_info}{world_clocks}\n"
                         
-                        # Befecskendezzük a kontextust a legutolsó felhasználói üzenet elé
                         if messages and messages[-1]["role"] == "user":
                             if isinstance(messages[-1]["content"], list):
-                                # Ha képes (vision) üzenetről van szó
                                 messages[-1]["content"].insert(0, {"type": "text", "text": system_context})
                             else:
-                                # Ha sima szöveges üzenetről van szó
                                 messages[-1]["content"] = system_context + messages[-1]["content"]
-                    except Exception as time_err:
+                    except Exception:
                         pass
                     # --- INTEGRÁCIÓ VÉGE ---
 
@@ -1359,3 +1355,10 @@ else:
                         db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
                     except Exception as e:
                         st.error(f"Hiba a naplózás során: {e}")
+            
+            except Exception as main_error:
+                st.error(f"Hiba történt a generálás közben: {main_error}")
+                st.session_state.generating = False
+            
+            finally:
+                st.session_state.generating = False
