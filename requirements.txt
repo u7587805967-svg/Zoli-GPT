@@ -18,3 +18,5 @@ FFmpeg
 imageio-ffmpeg
 moviepy
 replicate
+beautifulsoup4
+RestrictedPython
