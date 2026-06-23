@@ -1119,7 +1119,7 @@ if is_admin:
             
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
-            with col_t2: st.metric("Ingyenes napi limit", f"{max_allowed_tokens:,} db"
+            with col_t2: st.metric("Ingyenes napi limit", f"{max_allowed_tokens:,} db")
             with col_t3: st.metric("Becsült összköltség", f"${total_cost:.4f}")
             
             st.dataframe(df_tok.tail(30), use_container_width=True)
