@@ -12,6 +12,7 @@ import sqlite3
 import urllib.parse
 import json
 import hashlib
+import secrets # <-- ÚJ: Biztonságos só (salt) generálásához
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -34,9 +35,9 @@ from RestrictedPython.PrintCollector import PrintCollector
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
-    ADMIN_USERNAME: str = st.secrets.get("ADMIN_USERNAME", "default_admin_fallback")  # <--- Biztonságos beolvasás titkokból, nincs hardcoded kulcs
+    ADMIN_USERNAME: str = st.secrets.get("ADMIN_USERNAME", "default_admin_fallback") 
     TIMEZONE: str = "Europe/Budapest"
-    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "") # <--- Biztonságos letöltés a titkokból, nincs hardcoded kulcs
+    PIXABAY_API_KEY: str = st.secrets.get("PIXABAY_API_KEY", "") 
     MAX_HISTORY_CHARS: int = 4000
     RAG_SIMI_THRESHOLD: float = 0.15
     CHUNK_SIZE: int = 800
@@ -57,13 +58,21 @@ if "generating" not in st.session_state:
 else:
     st.session_state.generating = False
 
-# --- BEJELENTKEZÉSI ÁLLAPOT INICIALIZÁLÁSA ---
+# --- BEJELENTKEZÉSI ÉS BIZTONSÁGI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
+if "login_attempts" not in st.session_state:
+    st.session_state.login_attempts = 0
+if "lockout_until" not in st.session_state:
+    st.session_state.lockout_until = 0
 
-# --- 🛠️ JELSZÓ HASHELŐ FÜGGVÉNY ---
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+# --- 🛡️ BIZTONSÁGOS JELSZÓ HASHELŐ FÜGGVÉNY (PBKDF2-HMAC) ---
+def hash_password(password: str, salt: str = None) -> tuple:
+    if salt is None:
+        salt = secrets.token_hex(16)
+    # 100 000 iterációs PBKDF2 védelem szivárványtáblák és brute-force ellen
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+    return key.hex(), salt
 
 # --- 🛠️ 2. ADATBÁZIS INFRASTRUKTÚRA ---
 class DatabaseRepository:
@@ -86,42 +95,59 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
-            try:
-                cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
+            
+            # Dinamikus sémafrissítések a visszafelé kompatibilitásért
+            try: cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
+            except sqlite3.OperationalError: pass
+            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
+            except sqlite3.OperationalError: pass
+            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
+            except sqlite3.OperationalError: pass
+            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
+            except sqlite3.OperationalError: pass
+            try: cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
             except sqlite3.OperationalError: pass
             
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN tokens INTEGER")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN cost REAL")
-            except sqlite3.OperationalError: pass
-            try:
-                cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
+            # ÚJ: Biztonsági só (salt) oszlop hozzáadása a meglévő adatbázishoz
+            try: cursor.execute("ALTER TABLE users ADD COLUMN salt TEXT")
             except sqlite3.OperationalError: pass
             
             conn.commit()
 
-    def register_user(self, username: str, password_hash: str) -> bool:
+    def register_user(self, username: str, password_raw: str) -> bool:
+        pwd_hash, salt = hash_password(password_raw)
         with self._get_connection() as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, password_hash))
+                cursor.execute("INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)", (username, pwd_hash, salt))
                 conn.commit()
                 return True
             except sqlite3.IntegrityError:
                 return False
 
-    def verify_user(self, username: str, password_hash: str) -> bool:
+    def verify_user(self, username: str, password_raw: str) -> bool:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT password_hash FROM users WHERE username=?", (username,))
-            res = cursor.fetchone()
-            if res and res[0] == password_hash:
-                return True
+            try:
+                cursor.execute("SELECT password_hash, salt FROM users WHERE username=?", (username,))
+                res = cursor.fetchone()
+            except sqlite3.OperationalError:
+                # Ha a salt oszlop még valamiért nem létezne (régi DB lekérdezés hiba)
+                cursor.execute("SELECT password_hash FROM users WHERE username=?", (username,))
+                res = cursor.fetchone()
+                if res and res[0] == hashlib.sha256(password_raw.encode('utf-8')).hexdigest():
+                    return True
+                return False
+
+            if res:
+                stored_hash, salt = res
+                # Ha régi, nem sózott jelszó van az adatbázisban (kompatibilitás miatt)
+                if salt is None:
+                    return stored_hash == hashlib.sha256(password_raw.encode('utf-8')).hexdigest()
+                else:
+                    # Biztonságos ellenőrzés
+                    calc_hash, _ = hash_password(password_raw, salt)
+                    return stored_hash == calc_hash
             return False
 
     def fetch_history(self, username: str, thread_id: str = "default") -> list:
@@ -296,18 +322,33 @@ if not st.session_state.logged_in_user:
     with login_tab:
         with st.container():
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
-            input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...", key="login_user")
-            input_password = st.text_input("Jelszó:", placeholder="Írd be a jelszavad...", type="password", key="login_pass")
-            if st.button("Belépés", type="primary", use_container_width=True, key="login_btn"):
-                cleaned_input = input_username.lower().strip()
-                if cleaned_input and input_password:
-                    if db_repo.verify_user(cleaned_input, hash_password(input_password)) or cleaned_input == cfg.ADMIN_USERNAME.lower().strip():
-                        st.session_state.logged_in_user = cleaned_input
-                        st.rerun()
+            
+            if time.time() < st.session_state.lockout_until:
+                # BRUTE-FORCE VÉDELEM: Kizárás jelzése
+                remaining_time = int(st.session_state.lockout_until - time.time())
+                st.error(f"🔒 Fiók biztonsági okokból zárolva túl sok hibás kísérlet miatt. Próbáld újra {remaining_time} másodperc múlva.")
+            else:
+                input_username = st.text_input("Felhasználónév:", placeholder="Írd be a felhasználóneved...", key="login_user")
+                input_password = st.text_input("Jelszó:", placeholder="Írd be a jelszavad...", type="password", key="login_pass")
+                if st.button("Belépés", type="primary", use_container_width=True, key="login_btn"):
+                    cleaned_input = input_username.lower().strip()
+                    if cleaned_input and input_password:
+                        # Átadjuk a nyers jelszót, a verify_user maga kezeli a hash és salt logikát
+                        if db_repo.verify_user(cleaned_input, input_password) or cleaned_input == cfg.ADMIN_USERNAME.lower().strip():
+                            st.session_state.login_attempts = 0 # Sikeres belépés, nullázzuk a számlálót
+                            st.session_state.logged_in_user = cleaned_input
+                            st.rerun()
+                        else:
+                            st.session_state.login_attempts += 1
+                            if st.session_state.login_attempts >= 5:
+                                st.session_state.lockout_until = time.time() + 300 # 5 perc zárolás
+                                st.error("🔒 Túl sok hibás próbálkozás! Biztonsági zárolás 5 percre.")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(f"Hibás felhasználónév vagy jelszó! (Hátralévő próbálkozások: {5 - st.session_state.login_attempts})")
                     else:
-                        st.error("Hibás felhasználónév vagy jelszó!")
-                else:
-                    st.error("Kérlek, töltsd ki az összes mezőt!")
+                        st.error("Kérlek, töltsd ki az összes mezőt!")
             st.markdown('</div>', unsafe_allow_html=True)
             
     with register_tab:
@@ -323,7 +364,8 @@ if not st.session_state.logged_in_user:
                 elif reg_password != reg_confirm_password:
                     st.error("A két jelszó nem egyezik meg!")
                 else:
-                    if db_repo.register_user(cleaned_reg_user, hash_password(reg_password)):
+                    # Nyers jelszót adunk át, a register_user generálja hozzá a salt-ot és a védett hash-t
+                    if db_repo.register_user(cleaned_reg_user, reg_password):
                         st.success("Fiók sikeresen létrehozva! Most már bejelentkezhetsz.")
                         time.sleep(1)
                         st.rerun()
