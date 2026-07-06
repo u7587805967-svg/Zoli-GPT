@@ -1030,37 +1030,6 @@ def execute_python_sandbox(self, code: str) -> str:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-    # --- MÓDOSÍTOTT FUNKCIÓ (3. PONT): BIZTONSÁGOSABB PYTHON SANDBOX ---
-    def execute_python_sandbox(self, code: str) -> str:
-        import sys
-        import io
-        try:
-            old_stdout = sys.stdout
-            redirected_output = sys.stdout = io.StringIO()
-            
-            # Restricted környezet beállítása a RestrictedPython segítségével
-            loc = {}
-            glb = safe_builtins.copy()
-            glb['_print_'] = PrintCollector
-            glb['_getattr_'] = getattr
-            glb['_getitem_'] = lambda obj, index: obj[index]
-            glb['_getiter_'] = iter
-            glb['_write_'] = lambda obj: obj
-            
-            # Biztonságos fordítás és futtatás
-            byte_code = compile_restricted(code, '<inline>', 'exec')
-            exec(byte_code, glb, loc)
-            
-            sys.stdout = old_stdout
-            output = redirected_output.getvalue()
-            if '_print' in loc:
-                output += loc['_print']()
-                
-            return output if output else "A kód sikeresen lefutott (nincs szöveges kimenet)."
-        except Exception as e:
-            sys.stdout = old_stdout
-            return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
-
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
