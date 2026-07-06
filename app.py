@@ -31,22 +31,10 @@ from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
-# --- 🚀 ÚJ IMPORTOK A HATÉKONYABB MŰKÖDÉSHEZ (BIZTONSÁGOS MÓDBAN) ---
-try:
-    import chromadb
-except Exception as e:
-    chromadb = None
-
-try:
-    from sentence_transformers import SentenceTransformer
-except Exception as e:
-    SentenceTransformer = None
-
-try:
-    from tika import parser as tika_parser
-except Exception as e:
-    tika_parser = None
-# --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
+# --- 🚀 ÚJ IMPORTOK A HATÉKONYABB MŰKÖDÉSHEZ ---
+# import chromadb
+# from sentence_transformers import SentenceTransformer
+# from tika import parser as tika_parser# --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
