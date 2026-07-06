@@ -9,8 +9,5 @@ pypdf
 python-docx
 groq
 edge-tts
-beautifulsoup
+beautifulsoup4
 RestrictedPython
-chromadb
-sentence-transformers
-tika
