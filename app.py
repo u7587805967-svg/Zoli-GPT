@@ -1,3 +1,4 @@
+
 import streamlit as st
 import os
 import datetime
@@ -12,7 +13,7 @@ import sqlite3
 import urllib.parse
 import json
 import hashlib
-import secrets # <-- ÚJ: Biztonságos só (salt) generálásához
+import secrets # Biztonságos só (salt) generálásához
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -25,12 +26,17 @@ import docx
 from docx import Document
 from groq import Groq
 
-# --- ÚJ IMPORTOK A 2. ÉS 3. PONTHOZ ---
+# --- MEGLÉVŐ KIEGÉSZÍTŐ IMPORTOK ---
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
+# --- 🚀 ÚJ IMPORTOK A HATÉKONYABB MŰKÖDÉSHEZ ---
+import chromadb                                  # ÚJ: A beépített n-gram helyett a profi vektor-adatbázis
+from sentence_transformers import SentenceTransformer  # ÚJ: Helyi, ingyenes AI modell a szövegek megértéséhez (Embedding)
+from tika import parser as tika_parser           # ÚJ: Apache Tika a hibátlan és scannelt PDF-ek beolvasásához
+# Megjegyzés: A SearXNG-hez és az Ollamához nem kell új import, mert azokat a meglévő 'requests' és 'httpx' kezeli!
 # --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
