@@ -3,7 +3,6 @@ httpx
 numpy
 pandas
 streamlit-mic-recorder
-faster-whisper
 duckduckgo_search
 pillow
 pypdf
