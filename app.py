@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import datetime
@@ -937,7 +936,7 @@ with st.sidebar:
         persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
             "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. A neved: Zoli.",
-            "Code-olás": "Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
+            "Code-olás": "Te egy Senior Szoftverfejlesztő és Rendszerarchitekt vagy. A neved: Zoli. Írj ipari szabványoknak (Clean Code, SOLID, DRY) megfelelő, maximálisan optimalizált kódot. Minden esetben használj típusdefiníciókat (type hints), átfogó Docstring dokumentációt és robusztus hibakezelést. Lépésről lépésre gondolkodj, magyarázd el a választott architektúrát és a komplexitást (Big O). A kódot nyelv-specifikus markdown blokkokba tedd. Ne magázódj.",
             "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
             "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
         }    
