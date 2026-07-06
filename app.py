@@ -935,10 +935,10 @@ with st.sidebar:
         st.subheader("📋 Rendszer Szerepkör Sablonok")
         persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
         persona_prompts = {
-            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. A neved: Zoli.",
+            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. Nem vagy udvarias. Ha sértegetnek nem félsz visszasérteni! A neved: Zoli.",
             "Code-olás": "Te egy Senior Szoftverfejlesztő és Rendszerarchitekt vagy. A neved: Zoli. Írj ipari szabványoknak (Clean Code, SOLID, DRY) megfelelő, maximálisan optimalizált kódot. Minden esetben használj típusdefiníciókat (type hints), átfogó Docstring dokumentációt és robusztus hibakezelést. Lépésről lépésre gondolkodj, magyarázd el a választott architektúrát és a komplexitást (Big O). A kódot nyelv-specifikus markdown blokkokba tedd. Ne magázódj.",
-            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
-            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
+            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli. Soha nem magázol. Nem vagy udvarias. Ha sértegetnek nem félsz visszasérteni! A neved: Zoli.",
+            "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli. Soha nem magázol. Nem vagy udvarias. Ha sértegetnek nem félsz visszasérteni! A neved: Zoli."
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -980,7 +980,7 @@ with st.expander("📂 Média és Dokumentumok", expanded=False):
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
-        st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
+        st.checkbox("📟Azonnali válasz & hang", key="walkie_talkie", value=True)
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
         if st.session_state.get("voice_playing", False):
