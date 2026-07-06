@@ -862,11 +862,13 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-    def execute_python_sandbox(self, code: str) -> str:
-        import multiprocessing
+def execute_python_sandbox(self, code: str) -> str:
+        import threading
         import sys
         
-        def _run_code(q, code_str):
+        output_container = []
+        
+        def _run_code():
             try:
                 old_stdout = sys.stdout
                 redirected_output = sys.stdout = io.StringIO()
@@ -879,7 +881,7 @@ class AsyncAIEngine:
                 glb['_getiter_'] = iter
                 glb['_write_'] = lambda obj: obj
                 
-                byte_code = compile_restricted(code_str, '<inline>', 'exec')
+                byte_code = compile_restricted(code, '<inline>', 'exec')
                 exec(byte_code, glb, loc)
                 
                 sys.stdout = old_stdout
@@ -887,28 +889,24 @@ class AsyncAIEngine:
                 if '_print' in loc:
                     output += loc['_print']()
                     
-                q.put(output if output else "A kód sikeresen lefutott (nincs szöveges kimenet).")
+                output_container.append(output if output else "A kód sikeresen lefutott (nincs szöveges kimenet).")
             except Exception as e:
                 sys.stdout = sys.__stdout__
-                q.put(f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}")
+                output_container.append(f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}")
 
-        # Időkorlátos process létrehozása a végtelen ciklusok ellen
-        try:
-            ctx = multiprocessing.get_context("spawn")
-            q = ctx.Queue()
-            p = ctx.Process(target=_run_code, args=(q, code))
-            p.start()
-            p.join(timeout=5.0) # 5 másodperc a maximális futási idő
+        # Biztonságos szál indítása Streamlit-barát módon
+        t = threading.Thread(target=_run_code)
+        t.start()
+        t.join(timeout=5.0) # maximum 5 másodpercig futhat
+        
+        if t.is_alive():
+            # Megjegyzés: A threading-et nem lehet kívülről "durván" leállítani, 
+            # de a Streamlit felületét így már nem fogja lefagyasztani.
+            return "⚠️ Időkorlát túllépés: A kód futása több mint 5 másodpercig tartott."
             
-            if p.is_alive():
-                p.terminate()
-                p.join()
-                return "⚠️ Biztonsági leállítás: A kód futása túllépte a maximális időkorlátot (végtelen ciklus vagy túl nehéz számítás)."
-            
-            if not q.empty():
-                return q.get()
-            return "Hiba: Nincs kimenet."
-        except Exception as e:
+        if output_container:
+            return output_container[0]
+        return "Hiba: Nem keletkezett kimenet."        except Exception as e:
             return f"A processzor szintű sandbox összeomlott: {e}"
     # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
