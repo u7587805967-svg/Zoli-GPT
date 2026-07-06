@@ -905,7 +905,7 @@ def execute_python_sandbox(self, code: str) -> str:
         if output_container:
             return output_container[0]
         return "Hiba: Nem keletkezett kimenet."
-        return f"A processzor szintű sandbox összeomlott: {e}"
+
     # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
@@ -922,7 +922,6 @@ def execute_python_sandbox(self, code: str) -> str:
             return '\n'.join(lines)[:5000] # Maximális méret limitálása a kontextus ablak védelme miatt
         except Exception as e:
             return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
-
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
