@@ -20,3 +20,9 @@ moviepy
 replicate
 beautifulsoup4
 RestrictedPython
+
+# --- ÚJ KIEGÉSZÍTÉSEK A JOBB MŰKÖDÉSHEZ ---
+chromadb              # Modern vektor-adatbázis a pontosabb dokumentum-kereséshez (RAG)
+sentence-transformers # Helyi, ingyenes szöveg-vektorizáló (Embedding) modellekhez
+tika                  # Apache Tika kliens a komplexebb dokumentumok beolvasásához
+ollama                # (Opcionális) Ha hivatalos Ollama Python klienst szeretnél használni a helyi modellekhez
