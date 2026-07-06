@@ -904,7 +904,9 @@ def execute_python_sandbox(self, code: str) -> str:
             
         if output_container:
             return output_container[0]
-        return "Hiba: Nem keletkezett kimenet."        except Exception as e:
+        return "Hiba: Nem keletkezett kimenet."
+     except Exception as e:
+        return f"Hiba: {e}"
             return f"A processzor szintű sandbox összeomlott: {e}"
     # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
