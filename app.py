@@ -537,31 +537,21 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 🧠 3. ASZINKRON AI MOTOR ---
+# --- 🧠 3. ASZINKRON AI MOTOR (FRISSÍTETT, OPTIMALIZÁLT) ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
         self.db = db_repo
         self.config = config
+        
+        # --- ÚJ: Valódi Vektor-adatbázis (ChromaDB) és beágyazó modell (Embedding) ---
+        self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        self.collection = self.chroma_client.get_or_create_collection(name="zoli_docs")
+        # Multilingual (magyarul is értő) könnyűsúlyú modell
+        self.embedder = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2') 
 
     @staticmethod
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
-
-    # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
-    def compute_simple_tfidf_vector(self, text: str) -> list:
-        cleaned = re.sub(r'[^\w\s]', '', text.lower())
-        words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
-        
-        # Karakter n-gramok generálása a jobb morfológiai illeszkedésért (Magyar nyelvbarát RAG)
-        ngrams = {}
-        for word in words:
-            if len(word) > 3:
-                for i in range(len(word) - 2):
-                    gram = word[i:i+3]
-                    ngrams[gram] = ngrams.get(gram, 0) + 1
-            else:
-                ngrams[word] = ngrams.get(word, 0) + 1
-        return ngrams
 
     def smart_chunk_text(self, text: str, max_size: int, overlap: int) -> list:
         sentences = re.split(r'(?<=[.!?])\s+', text.replace('\n\n', '\n'))
@@ -597,46 +587,68 @@ class AsyncAIEngine:
         
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
+            # Töröljük a régi SQLite rekordokat, hogy a metaadat szinkronban legyen
             cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
-            p_bar = st.progress(0, text="📚 Személyes emlékek indexelése...")
+            
+            # Töröljük ChromaDB-ből a régi verziót
+            try:
+                self.collection.delete(where={"$and": [{"username": username}, {"doc_name": doc_name}]})
+            except Exception: pass
+
+            p_bar = st.progress(0, text="📚 Személyes emlékek indexelése (Vektortérben)...")
+            
+            ids = []
+            documents = []
+            metadatas = []
+            
             for idx, chunk in enumerate(chunks):
-                freq_map = self.compute_simple_tfidf_vector(chunk)
+                # UI kompatibilitás miatt megtartjuk az SQLite bejegyzést is (dummy embeddinggel)
                 cursor.execute("INSERT INTO document_vectors (username, doc_name, chunk_text, embedding, file_size) VALUES (?, ?, ?, ?, ?)",
-                               (username, doc_name, chunk, json.dumps(freq_map).encode('utf-8'), file_size_str))
+                               (username, doc_name, chunk, b'chroma', file_size_str))
+                
+                # ChromaDB előkészítés
+                ids.append(f"{username}_{doc_name}_{idx}")
+                documents.append(chunk)
+                metadatas.append({"username": username, "doc_name": doc_name})
+                
                 p_bar.progress((idx + 1) / len(chunks))
+            
             conn.commit()
+            
+            # Tömeges vektorizálás és mentés ChromaDB-be
+            if documents:
+                embeddings = self.embedder.encode(documents).tolist()
+                self.collection.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+                
             p_bar.empty()
 
-    # --- ADVANCED RAG UPGRADE: Koszinusz hasonlósághoz közeledő n-gram összehasonlítás ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
-        scored = []
-        rows = []
-        
+        # 1. Ellenőrizzük, hogy mely dokumentumok léteznek még az SQLite-ban (hogy ne adjunk vissza már törölt adatokat)
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT doc_name, chunk_text, embedding FROM document_vectors WHERE username=?", (username,))
-            rows = cursor.fetchall()
-                
-        q_map = self.compute_simple_tfidf_vector(query_text)
+            cursor.execute("SELECT DISTINCT doc_name FROM document_vectors WHERE username=?", (username,))
+            valid_docs = [r[0] for r in cursor.fetchall()]
+
+        if not valid_docs:
+            return []
+
+        # 2. Szemantikai keresés a ChromaDB-ben
+        query_embedding = self.embedder.encode([query_text]).tolist()
         
-        if q_map and rows:
-            q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values()))
-            for doc_name, chunk_text, emb_blob in rows:
-                try:
-                    freq_map = json.loads(emb_blob.decode('utf-8'))
-                except Exception:
-                    freq_map = {}
-                
-                if not freq_map: continue
-                
-                intersection = sum(q_map[k] * freq_map.get(k, 0) for k in q_map if k in freq_map)
-                doc_magnitude = np.sqrt(sum(v ** 2 for v in freq_map.values()))
-                
-                if intersection > 0 and q_magnitude > 0 and doc_magnitude > 0:
-                    cosine_score = intersection / (q_magnitude * doc_magnitude)
-                    if cosine_score >= self.config.RAG_SIMI_THRESHOLD:
-                        scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
-                        
+        results = self.collection.query(
+            query_embeddings=query_embedding,
+            n_results=5, 
+            where={"username": username}
+        )
+        
+        scored = []
+        if results and results['documents'] and results['documents'][0]:
+            for idx, doc in enumerate(results['documents'][0]):
+                source = results['metadatas'][0][idx]['doc_name']
+                if source in valid_docs: # Csak akkor fűzzük hozzá, ha még nem lett törölve a UI-on!
+                    dist = results['distances'][0][idx] if 'distances' in results and results['distances'] else 0.0
+                    scored.append({"text": doc, "score": 1.0 / (1.0 + dist), "source": source})
+                    
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
 
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
@@ -668,7 +680,6 @@ class AsyncAIEngine:
             if not clean_text: return None
             
             import edge_tts
-            import asyncio
             import threading
 
             def run_async(coro):
@@ -693,18 +704,28 @@ class AsyncAIEngine:
             return None
 
     def search_web_sync(self, query: str) -> str:
-        all_results = []
-        try:
-            with DDGS() as ddgs:
-                res_text = ddgs.text(query, max_results=8)
-                if res_text:
-                    all_results.extend(res_text)
-                try:
-                    res_news = ddgs.news(query, max_results=5)
-                    if res_news:
-                        all_results.extend(res_news)
-                except Exception: pass
-        except Exception: pass
+        # A keresést háttérszálra küldjük, hogy a felület reszponzív maradjon
+        import concurrent.futures
+        
+        def _search():
+            all_results = []
+            try:
+                with DDGS() as ddgs:
+                    res_text = ddgs.text(query, max_results=8)
+                    if res_text: all_results.extend(res_text)
+                    try:
+                        res_news = ddgs.news(query, max_results=5)
+                        if res_news: all_results.extend(res_news)
+                    except Exception: pass
+            except Exception: pass
+            return all_results
+            
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(_search)
+            try:
+                all_results = future.result(timeout=15.0)
+            except Exception:
+                return ""
             
         if not all_results: return ""
             
@@ -718,6 +739,177 @@ class AsyncAIEngine:
                 
         return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
 
+    def scrape_url(self, url: str) -> str:
+        # Aszinkron működés a gyorsabb weblap letöltéshez (non-blocking)
+        async def _async_scrape():
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    for tag in soup(["script", "style", "nav", "footer", "aside"]):
+                        tag.extract()
+                    text = soup.get_text(separator='\n')
+                    lines = [line.strip() for line in text.splitlines() if line.strip()]
+                    return '\n'.join(lines)[:5000]
+            except Exception as e:
+                return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
+                
+        try:
+            return asyncio.run(_async_scrape())
+        except Exception:
+            return "Hiba az aszinkron webolvasás során."
+
+    def generate_image(self, query: str, text_model: str) -> str:
+        clean_query = query.lower()
+        stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
+        if not clean_query: return None
+        
+        en_query = clean_query
+        if GROQ_API_KEY:
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                res = client.chat.completions.create(
+                    model=text_model, 
+                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
+                    timeout=10.0
+                )
+                translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
+                if translated:
+                    en_query = translated
+            except Exception:
+                en_query = clean_query
+                
+        return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
+
+    def generate_video(self, query: str, text_model: str) -> str:
+        clean_query = query.lower()
+        stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
+        for word in stop_words:
+            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
+        clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
+        if not clean_query: return None
+        
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(
+                model=text_model, 
+                messages=[{"role": "user", "content": f"Translate to English in 5 words max, dynamic scene: {clean_query}"}], 
+                timeout=10.0
+            )
+            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
+        except Exception: 
+            en_query = clean_query
+
+        try:
+            encoded_prompt = urllib.parse.quote(en_query)
+            image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
+            
+            img_res = httpx.get(image_url, timeout=20.0)
+            if img_res.status_code != 200:
+                return None
+                
+            base_image = Image.open(io.BytesIO(img_res.content))
+            
+            frames = []
+            width, height = base_image.size
+            
+            for i in range(15):
+                zoom_factor = 1.0 + (i * 0.006)
+                new_w = int(width / zoom_factor)
+                new_h = int(height / zoom_factor)
+                
+                left = (width - new_w) // 2
+                top = (height - new_h) // 2
+                right = left + new_w
+                bottom = top + new_h
+                
+                frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
+                frames.append(frame)
+            
+            output = io.BytesIO()
+            frames[0].save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100,
+                loop=0
+            )
+            
+            b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
+            return f"data:image/gif;base64,{b64_gif}"
+            
+        except Exception:
+            return None
+
+    def post_process_text(self, text: str, text_model: str, mode: str) -> str:
+        prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": prompts[mode]}], timeout=20.0)
+            return res.choices[0].message.content
+        except Exception as e: return f"Hiba: {e}"
+
+    def validate_url_safety(self, text: str) -> str:
+        return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
+
+    def anonymize_gdpr(self, text: str) -> str:
+        text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
+        return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
+
+    def execute_python_sandbox(self, code: str) -> str:
+        import multiprocessing
+        import sys
+        
+        def _run_code(q, code_str):
+            try:
+                old_stdout = sys.stdout
+                redirected_output = sys.stdout = io.StringIO()
+                
+                loc = {}
+                glb = safe_builtins.copy()
+                glb['_print_'] = PrintCollector
+                glb['_getattr_'] = getattr
+                glb['_getitem_'] = lambda obj, index: obj[index]
+                glb['_getiter_'] = iter
+                glb['_write_'] = lambda obj: obj
+                
+                byte_code = compile_restricted(code_str, '<inline>', 'exec')
+                exec(byte_code, glb, loc)
+                
+                sys.stdout = old_stdout
+                output = redirected_output.getvalue()
+                if '_print' in loc:
+                    output += loc['_print']()
+                    
+                q.put(output if output else "A kód sikeresen lefutott (nincs szöveges kimenet).")
+            except Exception as e:
+                sys.stdout = sys.__stdout__
+                q.put(f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}")
+
+        # Időkorlátos process létrehozása a végtelen ciklusok ellen
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            q = ctx.Queue()
+            p = ctx.Process(target=_run_code, args=(q, code))
+            p.start()
+            p.join(timeout=5.0) # 5 másodperc a maximális futási idő
+            
+            if p.is_alive():
+                p.terminate()
+                p.join()
+                return "⚠️ Biztonsági leállítás: A kód futása túllépte a maximális időkorlátot (végtelen ciklus vagy túl nehéz számítás)."
+            
+            if not q.empty():
+                return q.get()
+            return "Hiba: Nincs kimenet."
+        except Exception as e:
+            return f"A processzor szintű sandbox összeomlott: {e}"
     # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
