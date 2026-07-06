@@ -11,3 +11,4 @@ groq
 edge-tts
 beautifulsoup4
 RestrictedPython
+pytz
