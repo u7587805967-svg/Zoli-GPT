@@ -944,34 +944,39 @@ with st.sidebar:
         models = ai_engine.get_available_models()
         TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None)
     
-    with st.expander("📂 Média és Dokumentumok", expanded=False):
-        st.subheader("📂 Fájlok és Képek Feltöltése")
-        uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
-        if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
-            ext = uploaded_file.name.split(".")[-1].lower()
-            content = ""
-            size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+with st.expander("📂 Média és Dokumentumok", expanded=False):
+    st.subheader("📂 Fájlok és Képek Feltöltése")
+    # Hozzáadva a "py" a megengedett típusok listájához
+    uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx, py) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg", "py"])
+    if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
+        ext = uploaded_file.name.split(".")[-1].lower()
+        content = ""
+        size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+        # Most már a "py" kiterjesztésű fájlokat is a "txt"-hez hasonlóan szövegként olvassa be
+        if ext in ["txt", "py"]:
+            content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
+        elif ext == "pdf":
+            content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
+        elif ext == "docx":
+            content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
+        elif ext in ["csv", "xlsx"]:
+            try:
+                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
+                st.session_state.last_df = df
+                content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
+                st.sidebar.dataframe(df.head(3))
+            except Exception as e:
+                st.sidebar.error(f"Táblázat hiba: {e}")
+        elif ext in ["png", "jpg", "jpeg"]:
+            st.session_state.active_vision_image = uploaded_file.getvalue()
+            st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success("Kép sikeresen betöltve!")
             
-            if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
-            elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
-            elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
-            elif ext in ["csv", "xlsx"]:
-                try:
-                    df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
-                    st.session_state.last_df = df
-                    content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
-                    st.sidebar.dataframe(df.head(3))
-                except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
-            elif ext in ["png", "jpg", "jpeg"]:
-                st.session_state.active_vision_image = uploaded_file.getvalue()
-                st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
-                st.session_state[f"idx_{uploaded_file.name}"] = True
-                st.sidebar.success("Kép sikeresen betöltve!")
-
-            if content:
-                ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
-                st.session_state[f"idx_{uploaded_file.name}"] = True
-                st.sidebar.success(f"✅ Mentve ({size_kb})")
+        if content:
+            ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
