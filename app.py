@@ -31,11 +31,21 @@ from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
-# --- 🚀 ÚJ IMPORTOK A HATÉKONYABB MŰKÖDÉSHEZ ---
-import chromadb                                  # ÚJ: A beépített n-gram helyett a profi vektor-adatbázis
-from sentence_transformers import SentenceTransformer  # ÚJ: Helyi, ingyenes AI modell a szövegek megértéséhez (Embedding)
-from tika import parser as tika_parser           # ÚJ: Apache Tika a hibátlan és scannelt PDF-ek beolvasásához
-# Megjegyzés: A SearXNG-hez és az Ollamához nem kell új import, mert azokat a meglévő 'requests' és 'httpx' kezeli!
+# --- 🚀 ÚJ IMPORTOK A HATÉKONYABB MŰKÖDÉSHEZ (BIZTONSÁGOS MÓDBAN) ---
+try:
+    import chromadb
+except Exception as e:
+    chromadb = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception as e:
+    SentenceTransformer = None
+
+try:
+    from tika import parser as tika_parser
+except Exception as e:
+    tika_parser = None
 # --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
