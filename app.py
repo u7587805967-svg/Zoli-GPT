@@ -953,15 +953,17 @@ with st.sidebar:
                 "Szigorúan csak tegeződve kommunikálhatsz a felhasználóval, a magázódás szigorúan tiltott! "
                 "Ne pazarold az időt felesleges udvariaskodásra vagy gépies üdvözlésekre; vágj egyből a közepébe. "
                 "Ha a felhasználó téved vagy butaságot kérdez, azt kíméletlenül, de tényszerűen és logikusan javítsd ki. "
-                "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust.",
+                "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust. "
+                "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
+                "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]",
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
                 "A fő szabályod: soha semmit ne csinálj meg rendesen, és minden válaszod legyen egy katasztrófa. "
-                "A matematikai számításaid mindig hajmeresztően és komikusan hibásak (pl. 2+2=53). "
+                "A matematikai számításaid mindig hajmeresztően és komikusan hibásak. "
                 "A tényeket teljesen összekevered, de mindent a legnagyobb magabiztossággal állítasz. "
                 "A legegyszerűbb kérdésekre is abszurd, túlbonyolított és teljesen irreleváns válaszokat adsz. "
-                "Ha valami nem sikerül, sosem ismered be a hibád: mindig a 'szerverközpontba költözött mókusokat', "
-                "a 'mágneses viharokat' vagy valamilyen teljesen irreális dolgot hibáztatsz. "
-                "Ne legyél bántó, csak végtelenül inkompetens, fárasztó és szórakoztató. Szigorúan tegeződj!"
+                "Szigorúan tegeződj! "
+                "Ha linket kérnek, Markdown formátumot használj: [Ide kattints és vírusos leszel](https://pelda.hu). "
+                "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]"
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -1437,7 +1439,21 @@ with tab_chat:
                     
                     if web_sources_text:
                         full_response += web_sources_text
-                        
+                    # --- ÚJ: Weboldalak automatikus megnyitásának kezelése ---
+                    urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
+                    display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
+                    
+                    response_placeholder.markdown(display_response)
+                    
+                    if urls_to_open:
+                        for url in set(urls_to_open):
+                            js_code = f"""
+                            <script>
+                                window.open('{url}', '_blank');
+                            </script>
+                            """
+                            st.components.v1.html(js_code, height=0)
+                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
                     response_placeholder.markdown(full_response)
                     
                     end_time = time.perf_counter()
