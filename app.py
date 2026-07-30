@@ -377,7 +377,6 @@ if not st.session_state.logged_in_user:
 # Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
 
-# --- 🔄 MÓDOSÍTÁS: A 'szemelyes' felhasználónak már NINCS admin joga, csak a beni-nek maradt meg ---
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
 # Biztosítjuk, hogy az admin által kiválasztott célszemély adatai töltődjenek be a renderelés előtt
@@ -712,7 +711,33 @@ class AsyncAIEngine:
                 unique_results.append(r)
                 
         return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
-
+    def search_medical_database(self, query: str) -> str:
+        """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
+        try:
+            # Csak a legrelevánsabb, szabadon olvasható (Open Access) cikkeket kérjük
+            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}%20OPEN_ACCESS:Y&format=json&resultType=core"
+            response = requests.get(url, timeout=12.0)
+            response.raise_for_status()
+            
+            data = response.json()
+            results = data.get("resultList", {}).get("result", [])
+            
+            if not results:
+                return "Nem találtam releváns orvosi publikációt a hivatalos adatbázisokban."
+                
+            extracted = []
+            for res in results[:3]: # A top 3 leginkább idevágó tanulmányt vesszük
+                title = res.get("title", "Nincs cím")
+                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
+                # Eltávolítjuk a HTML tageket a kivonatból
+                clean_abstract = re.sub(r'<[^>]+>', '', abstract)
+                author_string = res.get("authorString", "Ismeretlen szerzők")
+                
+                extracted.append(f"Cím: {title}\nSzerzők: {author_string}\nKivonat: {clean_abstract}")
+                
+            return "\n---\n".join(extracted)
+        except Exception as e:
+            return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
@@ -754,14 +779,6 @@ class AsyncAIEngine:
                 en_query = clean_query
                 
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
-
-    def generate_video(self, query: str, text_model: str) -> str:
-        clean_query = query.lower()
-        stop_words = ["generálj", "generál", "videót", "videó", "egy", "a", "az", "mutass", "készíts", "rajzolj", "rajzol", "ról", "ről", "-"]
-        for word in stop_words:
-            clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
-        clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
-        if not clean_query: return None
         
         # 1. Fordítás angolra a Groq segítségével
         try:
@@ -928,11 +945,9 @@ with st.sidebar:
 
     with st.expander("🤖 AI Modell Beállítások", expanded=True):
         st.subheader("📋 Rendszer Szerepkör Sablonok")
-        persona = st.selectbox("AI Mód", ["Chat&Web keresés", "Code-olás", "Számolás", "Zoli mód"])
+        persona = st.selectbox("AI Mód", ["Normál mód", "Zoli mód"])
         persona_prompts = {
-            "Chat&Web keresés": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. A neved: Zoli.",
-            "Code-olás": "Tiszta kódot írsz markdown kódblokkokban. A neved: Zoli.",
-            "Számolás": "Használj standard szöveges formázást a képletekhez. Precízen számolsz. A neved: Zoli.",
+            "Normál mód": "Te egy precíz, professzionális személyes asszisztens vagy. Soha nem magázol. A neved: Zoli.Szarkasztikus vagy.",
             "Zoli mód": "Mindent elrontasz, semmit sem tudsz kiszámolni helyes végeredménnyel. soha nem tudsz helyes választ adni. A neved: Zoli."
         }    
         st.subheader("🤖 AI Modellek")
@@ -1277,7 +1292,7 @@ with tab_chat:
                             routing_res = client.chat.completions.create(
                                 model="llama-3.1-8b-instant",
                                 messages=[
-                                    {"role": "system", "content": "Te egy intelligens AI router vagy. Dönts el, hogy a felhasználó kérésének megválaszolásához szükséges-e külső weblap keresés (friss hírek, aktualitások, 2026-os infók) vagy belső dokumentumtár (RAG) keresés. Válaszolj szigorúan egy tiszta JSON objektummal, egyéb szöveg nélkül: {\"use_web\": true/false, \"use_rag\": true/false, \"terv\": \"rövid indoklás magyarul\"}"},
+                                    {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e webes keresés (hírek, napi infók), belső adatbázis (RAG), vagy TUDOMÁNYOS ORVOSI ADATBÁZIS (betegségek, gyógyszerek, anatómia, tünetek). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"med_query\": \"angol nyelvű keresőszó az orvosi adatbázishoz, ha kell\", \"terv\": \"rövid indoklás\"}"},
                                     {"role": "user", "content": user_input}
                                 ],
                                 response_format={"type": "json_object"},
@@ -1286,12 +1301,33 @@ with tab_chat:
                             plan_data = json.loads(routing_res.choices[0].message.content)
                             use_web = plan_data.get("use_web", False)
                             use_rag = plan_data.get("use_rag", False)
+                            use_med = plan_data.get("use_med", False)
+                            med_query = plan_data.get("med_query", "")
                             agent_status.write(f"🔮 **Stratégia:** {plan_data.get('terv', 'Közvetlen válaszadás')}")
                         except Exception:
-                            use_web = any(w in user_input.lower() for w in ["keress rá", "mi történt", "hírek", "időjárás", "ma", "aktualitás"])
+                            use_web = any(w in user_input.lower() for w in ["keress", "hírek"])
                             use_rag = True
-                            agent_status.write("⚠️ Router hiba, fallback üzemmód (RAG + Web szűrés) aktív.")
+                            use_med = any(w in user_input.lower() for w in ["fáj", "beteg", "tünet", "gyógyszer", "orvos"])
+                            med_query = "medical symptoms"
+                            agent_status.write("⚠️ Router hiba, fallback üzemmód aktív.")
 
+                        # --- RAG eszköz végrehajtása ---
+                        if use_rag:
+                            # ... (A meglévő RAG kódod marad itt) ...
+                            pass # Helyettesítsd be az eredetit!
+
+                        # --- Orvosi Adatbázis eszköz végrehajtása (ÚJ) ---
+                        if use_med and med_query:
+                            agent_status.update(label="🏥 Hivatalos orvosi publikációk kutatása...")
+                            med_results = ai_engine.search_medical_database(med_query)
+                            if "Hiba" not in med_results and "Nem találtam" not in med_results:
+                                context_addition += f"\n\nFONTOS ORVOSI KONTEXTUS A EUROPE PMC ADATBÁZISBÓL (Ezt használd fel a válaszhoz, de figyelmeztesd a felhasználót, hogy forduljon orvoshoz):\n{med_results}"
+                                agent_status.write("✅ Tudományos orvosi cikkek beolvasva.")
+                            else:
+                                agent_status.write(f"ℹ️ {med_results}")
+
+                        # --- Web Search eszköz végrehajtása ---
+                        # ... (A meglévő Web Search kódod marad itt) ...
                         # --- RAG eszköz végrehajtása ---
                         if use_rag:
                             agent_status.update(label="📚 Keresés a személyes emlékekben...")
