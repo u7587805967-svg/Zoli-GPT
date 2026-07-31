@@ -1058,7 +1058,7 @@ with st.sidebar:
         st.session_state.current_thread = selected_thread
         st.rerun()
         
-    new_thread_name = st.text_input("➕ Új szál neve:", placeholder="pl. Munka, Programozás...")
+    new_thread_name = st.text_input("❌ Új szál neve:", placeholder="pl. Munka, Programozás...")
     if st.button("Új szál létrehozása", use_container_width=True):
         cleaned_thread = new_thread_name.strip()
         if cleaned_thread and cleaned_thread not in user_threads:
@@ -1129,7 +1129,6 @@ with st.sidebar:
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
-        st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
         if st.session_state.get("voice_playing", False):
