@@ -1411,7 +1411,8 @@ with tab_chat:
                 if msg["role"] == "assistant":
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
-                        if audio_data: st.audio(audio_data, format="audio/mp3")
+                        # Az autoplay=True gondoskodik róla, hogy a generálás után azonnal megszólaljon
+                        if audio_data: st.audio(audio_data, format="audio/mp3", autoplay=True)
                     python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
 
                     with st.container():
