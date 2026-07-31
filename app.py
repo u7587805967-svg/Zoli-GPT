@@ -1283,15 +1283,34 @@ with tab_chat:
             response_placeholder = st.empty()
             
             try:
-                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
-                is_image_request = False                
-                is_video_request = False
+                # 1. Ellenőrizzük, hogy a modell elhelyezte-e a [GENERATE_IMAGE: ...] taget
+                image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
+                
+                # 2. Szöveg megtisztítása a belső tagektől (javított regex-szel)
+                display_response = re.sub(r'\[GENERATE_IMAGE:\s*.*?\]', '', full_response)
+                display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', display_response)
+                
+                response_placeholder.markdown(display_response)
+                
+                # 3. Képgenerálás végrehajtása
+                if image_match:
+                    img_prompt = image_match.group(1)
+                    st.info(f"🎨 A modell képgenerálást kérvényezett: *{img_prompt}*")
                     with st.spinner("🎨 AI Képgenerálás..."):
-                        url = ai_engine.generate_image(user_input, TEXT_MODEL)
-                        if url:
-                            st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
-                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                elif is_video_request:
+                        try:
+                            gen_url = ai_engine.generate_image_pollinations(img_prompt)
+                            if gen_url:
+                                st.image(gen_url, caption=f"Generált kép: {img_prompt}")
+                                db_repo.log_message(
+                                    active_chat_user, 
+                                    "assistant", 
+                                    gen_url, 
+                                    msg_type="image", 
+                                    caption=f"Generált kép: {img_prompt}", 
+                                    thread_id=st.session_state.get("current_thread", "default")
+                                )
+                        except Exception as img_err:
+                            st.error(f"Hiba a képgenerálás során: {img_err}")
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
                         if url:
