@@ -671,8 +671,8 @@ class AsyncAIEngine:
                 communicate = edge_tts.Communicate(
                     clean_text[:1000], 
                     "hu-HU-TamasNeural",
-                    pitch="-25Hz",
-                    rate="-15%"
+                    pitch="-20Hz",
+                    rate="30%"
                 )
                 audio_data = b""
                 async for chunk in communicate.stream():
