@@ -1423,7 +1423,7 @@ with tab_chat:
                             st.audio(audio_data, format="audio/mp3")                            
                             st.components.v1.html(js_autoplay, height=0)
                             st.audio(audio_data, format="audio/mp3")
-                                audio.play().catch(function(error) {{
+                            audio.play().catch(function(error) {{
                                     console.log("Autoplay blokkolva: ", error);
                                 }});
                             </script>
