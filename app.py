@@ -1408,14 +1408,25 @@ with tab_chat:
                 content = msg["content"]
                 st.write(content)
                 if msg["role"] == "assistant":
-                    if not st.session_state.mute_voice and idx == len(chat_history) - 1:
+                    st.markdown(content)
+                    
+                    # --- HANG LEJÁTSZÓ ÉS AUTOMATA BESZÉD ---
+                    if not st.session_state.get("mute_voice", False) and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
-                        if audio_data: 
-                           
+                        if audio_data:
+                            # 1. Automata lejátszás JavaScripttel
                             b64_audio = base64.b64encode(audio_data).decode("utf-8")
-                            audio_html = f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3"></audio>'
-                            st.markdown(audio_html, unsafe_allow_html=True)
+                            js_autoplay = f"""
+                            <script>
+                                var audio = new Audio("data:audio/mp3;base64,{b64_audio}");
+                                audio.play().catch(function(error) {{
+                                    console.log("Autoplay blokkolva: ", error);
+                                }});
+                            </script>
+                            """
+                            st.components.v1.html(js_autoplay, height=0)
                             
+                            # 2. Látható Streamlit lejátszó, hogy biztosan megjelenjen a felületen
                             st.audio(audio_data, format="audio/mp3")
                     python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
 
