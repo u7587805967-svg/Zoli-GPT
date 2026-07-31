@@ -886,6 +886,147 @@ class AsyncAIEngine:
             sys.stdout = old_stdout
             return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
 
+# ==============================================================================
+# 🗺️ TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR (OpenStreetMap + OSRM + Leaflet.js)
+# ==============================================================================
+class MapRoutingEngine:
+    @staticmethod
+    def geocode(location_name: str):
+        """Helyszín név átalakítása GPS koordinátákká (Nominatim API)."""
+        headers = {'User-Agent': 'ZoliGPT-MapApp/1.0'}
+        url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_name)}&format=json&limit=1"
+        try:
+            resp = requests.get(url, headers=headers, timeout=8.0)
+            data = resp.json()
+            if data and len(data) > 0:
+                lat = float(data[0]['lat'])
+                lon = float(data[0]['lon'])
+                display_name = data[0].get('display_name', location_name)
+                return lat, lon, display_name
+        except Exception:
+            pass
+        return None, None, None
+
+    @staticmethod
+    def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float, profile: str = "driving"):
+        """Útvonal, távolság, menetidő és navigációs lépések lekérése (OSRM API)."""
+        url = f"http://router.project-osrm.org/route/v1/{profile}/{start_lon},{start_lat};{end_lon},{end_lat}?overview=full&geometries=geojson&steps=true"
+        try:
+            resp = requests.get(url, timeout=10.0)
+            data = resp.json()
+            if data.get('code') == 'Ok' and data.get('routes'):
+                route = data['routes'][0]
+                distance_km = round(route['distance'] / 1000.0, 1)
+                duration_min = round(route['duration'] / 60.0)
+                
+                coords = route['geometry']['coordinates']
+                polyline_coords = [[c[1], c[0]] for c in coords] # [lat, lon]
+                
+                steps = []
+                legs = route.get('legs', [])
+                for leg in legs:
+                    for step in leg.get('steps', []):
+                        name = step.get('name', '')
+                        maneuver = step.get('maneuver', {}).get('type', '')
+                        modifier = step.get('maneuver', {}).get('modifier', '')
+                        dist = round(step.get('distance', 0))
+                        
+                        if dist > 0:
+                            instr = f"{maneuver} {modifier}".strip().capitalize()
+                            if name:
+                                instr += f" -> {name}"
+                            steps.append({"instruction": instr, "distance": dist})
+                            
+                return {
+                    "distance_km": distance_km,
+                    "duration_min": duration_min,
+                    "polyline": polyline_coords,
+                    "steps": steps
+                }
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def render_map_html(start_lat, start_lon, end_lat, end_lon, polyline_coords, start_name="Indulás", end_name="Cél"):
+        """Interaktív Leaflet.js HTML térkép generálása."""
+        coords_json = json.dumps(polyline_coords)
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <style>
+                #map {{ height: 400px; width: 100%; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); border: 1px solid rgba(14, 165, 233, 0.3); }}
+                body {{ margin: 0; padding: 0; background-color: transparent; }}
+            </style>
+        </head>
+        <body>
+            <div id="map"></div>
+            <script>
+                var map = L.map('map');
+                
+                L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                    attribution: '© OpenStreetMap contributors'
+                }}).addTo(map);
+
+                var polylinePoints = {coords_json};
+                var polyline = L.polyline(polylinePoints, {{color: '#0ea5e9', weight: 5, opacity: 0.85}}).addTo(map);
+
+                var startIcon = L.icon({{
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                }});
+
+                var endIcon = L.icon({{
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                }});
+
+                L.marker([{start_lat}, {start_lon}], {{icon: startIcon}}).addTo(map).bindPopup("<b>📍 Indulás:</b> {start_name}");
+                L.marker([{end_lat}, {end_lon}], {{icon: endIcon}}).addTo(map).bindPopup("<b>🏁 Érkezés:</b> {end_name}");
+
+                map.fitBounds(polyline.getBounds(), {{padding: [40, 40]}});
+            </script>
+        </body>
+        </html>
+        """
+
+def show_route_widget(start_loc: str, end_loc: str):
+    """Integrált útvonal kijelző Streamlit widget (külső linkek nélkül)."""
+    s_lat, s_lon, s_name = MapRoutingEngine.geocode(start_loc)
+    e_lat, e_lon, e_name = MapRoutingEngine.geocode(end_loc)
+    
+    if not s_lat or not e_lat:
+        st.error(f"❌ Nem sikerült azonosítani a helyszíneket: '{start_loc}' vagy '{end_loc}'")
+        return
+        
+    route = MapRoutingEngine.get_route(s_lat, s_lon, e_lat, e_lon)
+    if not route:
+        st.error("❌ Nem sikerült útvonalat tervezni a megadott pontok között.")
+        return
+        
+    st.markdown(f"### 🗺️ Útvonal: **{s_name.split(',')[0]}** ➔ **{e_name.split(',')[0]}**")
+    
+    # Távolság és idő kijelzése
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("📏 Távolság", f"{route['distance_km']} km")
+    with col2:
+        st.metric("⏱️ Várható idő", f"{route['duration_min']} perc")
+        
+    # Interaktív térkép kirajzolása a Streamlit felületén
+    map_html = MapRoutingEngine.render_map_html(s_lat, s_lon, e_lat, e_lon, route['polyline'], s_name, e_name)
+    st.components.v1.html(map_html, height=420)
+    
+    # Lépésről lépésre útbaigazítás (opcionálisan lenyitható panel)
+    with st.expander("📍 Lépésről lépésre útbaigazítás", expanded=False):
+        for idx, step in enumerate(route['steps'], 1):
+            st.write(f"**{idx}.** {step['instruction']} *({step['distance']} m)*")
+
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
@@ -955,7 +1096,8 @@ with st.sidebar:
                 "Ha a felhasználó téved vagy butaságot kérdez, azt kíméletlenül, de tényszerűen és logikusan javítsd ki. "
                 "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust. "
                 "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
-                "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]",
+                "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]. "
+                "Ha a felhasználó útvonalat, térképet vagy útbaigazítást kér két helyszín között, válaszodban mindenképpen helyezd el ezt a formátumot: [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]",
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
                 "A fő szabályod: soha semmit ne csinálj meg rendesen, és minden válaszod legyen egy katasztrófa. "
                 "A matematikai számításaid mindig hajmeresztően és komikusan hibásak. "
@@ -963,7 +1105,8 @@ with st.sidebar:
                 "A legegyszerűbb kérdésekre is abszurd, túlbonyolított és teljesen irreleváns válaszokat adsz. "
                 "Szigorúan tegeződj! "
                 "Ha linket kérnek, Markdown formátumot használj: [Ide kattints és vírusos leszel](https://pelda.hu). "
-                "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]"
+                "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]. "
+                "Ha útvonalat kérnek, ezt használd (még ha rossz irányba is visz): [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]"
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -1439,9 +1582,15 @@ with tab_chat:
                     
                     if web_sources_text:
                         full_response += web_sources_text
+                        
                     # --- ÚJ: Weboldalak automatikus megnyitásának kezelése ---
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
+                    
+                    # --- ÚJ: Térkép és Útvonaltervezés kezelése ---
+                    route_match = re.search(r'\[ROUTE:\s*([^|]+)\s*\|\s*([^\]]+)\]', display_response)
+                    if route_match:
+                        display_response = re.sub(r'\[ROUTE:\s*[^|]+\s*\|\s*[^\]]+\]', '', display_response)
                     
                     response_placeholder.markdown(display_response)
                     
@@ -1454,7 +1603,13 @@ with tab_chat:
                             """
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
-                    response_placeholder.markdown(full_response)
+                    
+                    if route_match:
+                        start_point = route_match.group(1).strip()
+                        end_point = route_match.group(2).strip()
+                        show_route_widget(start_point, end_point)
+
+                    response_placeholder.markdown(display_response)
                     
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
