@@ -1285,7 +1285,7 @@ with tab_chat:
             try:
                 # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
                 is_image_request = False                
-                if is_image_request:
+                is_video_request = False
                     with st.spinner("🎨 AI Képgenerálás..."):
                         url = ai_engine.generate_image(user_input, TEXT_MODEL)
                         if url:
