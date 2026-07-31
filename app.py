@@ -1097,6 +1097,7 @@ with st.sidebar:
                 "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust. "
                 "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
                 "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]. "
+                "Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: [PLAY_MUSIC: Előadó            neve - Zene címe]"
                 "Ha a felhasználó útvonalat, térképet vagy útbaigazítást kér két helyszín között, válaszodban mindenképpen helyezd el ezt a formátumot: [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]",
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
                 "A fő szabályod: soha semmit ne csinálj meg rendesen, és minden válaszod legyen egy katasztrófa. "
@@ -1107,6 +1108,7 @@ with st.sidebar:
                 "Ha linket kérnek, Markdown formátumot használj: [Ide kattints és vírusos leszel](https://pelda.hu). "
                 "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]. "
                 "Ha útvonalat kérnek, ezt használd (még ha rossz irányba is visz): [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]"
+                "Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: [PLAY_MUSIC: Előadó neve - Zene címe]"
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
