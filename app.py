@@ -668,10 +668,10 @@ class AsyncAIEngine:
                 return result[0]
 
             async def generate_audio():
-                    communicate = edge_tts.Communicate(
+                communicate = edge_tts.Communicate(
                     clean_text[:1000], 
                     "hu-HU-TamasNeural",
-                    pitch="-25Hz", 
+                    pitch="-25Hz",
                     rate="-15%"
                 )
                 audio_data = b""
@@ -683,7 +683,6 @@ class AsyncAIEngine:
             return run_async(generate_audio())
         except Exception:
             return None
-
     def search_web_sync(self, query: str) -> str:
         """
         Továbbfejlesztett, maximális pontosságú webes kereső és tartalom-kivonatoló.
