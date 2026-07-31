@@ -1284,9 +1284,7 @@ with tab_chat:
             
             try:
                 # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
-                is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
-                is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
-                
+                is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemez                
                 if is_image_request:
                     with st.spinner("🎨 AI Képgenerálás..."):
                         url = ai_engine.generate_image(user_input, TEXT_MODEL)
