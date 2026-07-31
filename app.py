@@ -1419,9 +1419,11 @@ with tab_chat:
                         if audio_data:
                             b64_audio = base64.b64encode(audio_data).decode("utf-8")
                             
-                            # Egysoros JavaScript, ami elkerüli az IndentationError hibát
+                            # Egysoros, hibamentes JavaScript az automatikus lejátszáshoz
                             js_autoplay = f'<script>var audio = new Audio("data:audio/mp3;base64,{b64_audio}"); audio.play().catch(e => console.log(e));</script>'
                             
+                            st.components.v1.html(js_autoplay, height=0)
+                            st.audio(audio_data, format="audio/mp3")                            
                             st.components.v1.html(js_autoplay, height=0)
                             st.audio(audio_data, format="audio/mp3")
                                 audio.play().catch(function(error) {{
