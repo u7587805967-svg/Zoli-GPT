@@ -1417,11 +1417,8 @@ with tab_chat:
                     if not st.session_state.get("mute_voice", False) and is_last_message:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data:
-                            b64_audio = base64.b64encode(audio_data).decode("utf-8")
-                            
-                            # Egysoros, hibamentes JavaScript az automatikus lejátszáshoz
-                            js_autoplay = f'<script>var audio = new Audio("data:audio/mp3;base64,{b64_audio}"); audio.play().catch(e => console.log(e));</script>'
-                            
+                            # Tiszta, biztonságos Streamlit lejátszó, ami elkerüli az összes JavaScript hibát
+                            st.audio(audio_data, format="audio/mp3")                            
                             st.components.v1.html(js_autoplay, height=0)
                             st.audio(audio_data, format="audio/mp3")                            
                             st.components.v1.html(js_autoplay, height=0)
