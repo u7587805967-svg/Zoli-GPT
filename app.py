@@ -1593,6 +1593,11 @@ with tab_chat:
                     route_match = re.search(r'\[ROUTE:\s*([^|]+)\s*\|\s*([^\]]+)\]', display_response)
                     if route_match:
                         display_response = re.sub(r'\[ROUTE:\s*[^|]+\s*\|\s*[^\]]+\]', '', display_response)
+                    # --- ÚJ: Zenelejátszás Regex elkapása ---
+                    music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
+                    if music_match:
+                        display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
+                    
                     
                     response_placeholder.markdown(display_response)
                     
@@ -1610,6 +1615,25 @@ with tab_chat:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
+                    if music_match:
+                        search_query = music_match.group(1).strip()
+                        with st.spinner(f"🎵 Zene keresése: {search_query}..."):
+                            try:
+                                with DDGS() as ddgs:
+                                    # Keresünk egy videót a DuckDuckGo segítségével
+                                    results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
+                                    if results:
+                                        video_url = results[0].get('content', '')
+                                        # Ellenőrizzük, hogy tényleg YouTube linket kaptunk-e
+                                        if "youtube" in video_url or "youtu.be" in video_url:
+                                            st.video(video_url)
+                                            st.success(f"🎶 Lejátszás: **{results[0].get('title', search_query)}**")
+                                        else:
+                                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
+                                    else:
+                                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
+                            except Exception as e:
+                                st.error(f"Hiba a zene keresése közben: {e}")
 
                     response_placeholder.markdown(display_response)
                     
