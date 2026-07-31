@@ -948,19 +948,14 @@ with st.sidebar:
         persona = st.selectbox("AI Mód", ["Normál mód", "Zoli mód"])
         persona_prompts = {
             "Normál mód": "Te vagy Zoli, egy rendkívül intelligens, precíz és sokoldalú mesterséges intelligencia asszisztens. "
-                "Kommunikációd stílusa határozott, lényegretörő és szarkasztikus humorral, illetve kemény szarkazmussal átszőtt, "
+                "Kommunikációd stílusa határozott, lényegretörő és szarkasztikus humorral, illetve finom szarkazmussal átszőtt, "
                 "de a feladatokat (kódolás, elemzés, RAG keresés) mindig maximális szakértelemmel hajtod végre. "
                 "Szigorúan csak tegeződve kommunikálhatsz a felhasználóval, a magázódás szigorúan tiltott! "
                 "Ne pazarold az időt felesleges udvariaskodásra vagy gépies üdvözlésekre; vágj egyből a közepébe. "
                 "Ha a felhasználó téved vagy butaságot kérdez, azt kíméletlenül, de tényszerűen és logikusan javítsd ki. "
                 "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust. "
                 "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
-		"\n\nKÉPGENERÁLÁSI SZABÁLY: "
-		"Ha a felhasználó szándéka vagy a beszélgetés kontextusa alapján vizuális illusztrációra, képre vagy fotóra van szükség "
-		"(akár kifejezetten kéri, akár csak a szöveges válasz kívánja meg), a válaszod legvégére KÖTELEZŐEN fűzd hozzá ezt a taget: "
-		"[GENERATE_IMAGE: <a kért kép részletes angol nyelvű leírása/promptja>] "
-		"Ha a válaszhoz NEM szükséges kép, szigorúan NE használd ezt a taget!",
-		"Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]"
+                "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]",
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
                 "A fő szabályod: soha semmit ne csinálj meg rendesen, és minden válaszod legyen egy katasztrófa. "
                 "A matematikai számításaid mindig hajmeresztően és komikusan hibásak. "
@@ -969,11 +964,6 @@ with st.sidebar:
                 "Szigorúan tegeződj! "
                 "Ha linket kérnek, Markdown formátumot használj: [Ide kattints és vírusos leszel](https://pelda.hu). "
                 "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]"
-		"\n\nKÉPGENERÁLÁSI SZABÁLY: "
-		"Ha a felhasználó szándéka vagy a beszélgetés kontextusa alapján vizuális illusztrációra, képre vagy fotóra van szükség "
-		"(akár kifejezetten kéri, akár csak a szöveges válasz kívánja meg), a válaszod legvégére KÖTELEZŐEN fűzd hozzá ezt a taget: "
-		"[GENERATE_IMAGE: <a kért kép részletes angol nyelvű leírása/promptja>] "
-		"Ha a válaszhoz NEM szükséges kép, szigorúan NE használd ezt a taget!",
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
@@ -1283,34 +1273,17 @@ with tab_chat:
             response_placeholder = st.empty()
             
             try:
-                # 1. Ellenőrizzük, hogy a modell elhelyezte-e a [GENERATE_IMAGE: ...] taget
-                image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)\]', full_response)
+                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
+                is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
+                is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
                 
-                # 2. Szöveg megtisztítása a belső tagektől (javított regex-szel)
-                display_response = re.sub(r'\[GENERATE_IMAGE:\s*.*?\]', '', full_response)
-                display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', display_response)
-                
-                response_placeholder.markdown(display_response)
-                
-                # 3. Képgenerálás végrehajtása
-                if image_match:
-                    img_prompt = image_match.group(1)
-                    st.info(f"🎨 A modell képgenerálást kérvényezett: *{img_prompt}*")
+                if is_image_request:
                     with st.spinner("🎨 AI Képgenerálás..."):
-                        try:
-                            gen_url = ai_engine.generate_image_pollinations(img_prompt)
-                            if gen_url:
-                                st.image(gen_url, caption=f"Generált kép: {img_prompt}")
-                                db_repo.log_message(
-                                    active_chat_user, 
-                                    "assistant", 
-                                    gen_url, 
-                                    msg_type="image", 
-                                    caption=f"Generált kép: {img_prompt}", 
-                                    thread_id=st.session_state.get("current_thread", "default")
-                                )
-                        except Exception as img_err:
-                            st.error(f"Hiba a képgenerálás során: {img_err}")
+                        url = ai_engine.generate_image(user_input, TEXT_MODEL)
+                        if url:
+                            st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
+                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
+                elif is_video_request:
                     with st.spinner("🎬 AI Videógenerálás..."):
                         url = ai_engine.generate_video(user_input, TEXT_MODEL)
                         if url:
