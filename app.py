@@ -25,13 +25,12 @@ import docx
 from docx import Document
 from groq import Groq
 
-# --- ÚJ IMPORTOK A 2. ÉS 3. PONTHOZ ---
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
-# --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
+# --- GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
@@ -49,7 +48,7 @@ class AppConfig:
 
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
-# --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
+# --- INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
 # Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
@@ -74,7 +73,7 @@ def hash_password(password: str, salt: str = None) -> tuple:
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
     return key.hex(), salt
 
-# --- 🛠️ 2. ADATBÁZIS INFRASTRUKTÚRA ---
+# --- ADATBÁZIS INFRASTRUKTÚRA ---
 class DatabaseRepository:
     def __init__(self, db_file: str):
         self.db_file = db_file
@@ -260,14 +259,13 @@ class DatabaseRepository:
 
 db_repo = DatabaseRepository(cfg.DB_FILE)
 
-# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
+# --- URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
     if url_user:
         st.session_state.logged_in_user = url_user
 
-# --- BEJELENTKEZŐ ÉS REGISZTRÁCIÓS FELÜLET ---
 if not st.session_state.logged_in_user:
     st.markdown("""
         <style>
@@ -374,7 +372,6 @@ if not st.session_state.logged_in_user:
             st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
 
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
@@ -383,7 +380,6 @@ is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 if is_admin and "admin_selected_user" in st.session_state:
     active_chat_user = st.session_state.admin_selected_user
 
-# --- 🎨 UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
     /* Világoskék és Fekete Ambient Glow & Premium Glassmorphism Háttér */
@@ -531,7 +527,7 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 🧠 3. ASZINKRON AI MOTOR ---
+# --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
         self.db = db_repo
@@ -546,7 +542,6 @@ class AsyncAIEngine:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
         
-        # Karakter n-gramok generálása a jobb morfológiai illeszkedésért (Magyar nyelvbarát RAG)
         ngrams = {}
         for word in words:
             if len(word) > 3:
@@ -601,7 +596,6 @@ class AsyncAIEngine:
             conn.commit()
             p_bar.empty()
 
-    # --- ADVANCED RAG UPGRADE: Koszinusz hasonlósághoz közeledő n-gram összehasonlítás ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
         rows = []
@@ -738,7 +732,7 @@ class AsyncAIEngine:
             return "\n---\n".join(extracted)
         except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
-    # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
+    # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
@@ -822,7 +816,6 @@ class AsyncAIEngine:
                 frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
                 frames.append(frame)
             
-            # Elmentjük memóriába mint animált GIF-et (a Streamlit st.video és st.image is lejátssza)
             output = io.BytesIO()
             frames[0].save(
                 output,
@@ -855,7 +848,6 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-    # --- MÓDOSÍTOTT FUNKCIÓ (3. PONT): BIZTONSÁGOSABB PYTHON SANDBOX ---
     def execute_python_sandbox(self, code: str) -> str:
         import sys
         import io
@@ -886,9 +878,7 @@ class AsyncAIEngine:
             sys.stdout = old_stdout
             return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
 
-# ==============================================================================
-# 🗺️ TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR (OpenStreetMap + OSRM + Leaflet.js)
-# ==============================================================================
+# TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR
 class MapRoutingEngine:
     @staticmethod
     def geocode(location_name: str):
@@ -1033,7 +1023,7 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
 
-# ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
+# --- HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA ---
 def get_clean_history(history, max_chars, text_model=None):
     truncated = []
     old_messages = []
@@ -1060,7 +1050,7 @@ def get_clean_history(history, max_chars, text_model=None):
         except Exception: pass
     return truncated, compressed
 
-# --- ⚙️ OLDALSÁV ---
+# --- OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
@@ -1074,7 +1064,7 @@ with st.sidebar:
         st.session_state.current_thread = selected_thread
         st.rerun()
         
-    new_thread_name = st.text_input("➕ Új szál neve:", placeholder="pl. Munka, Programozás...")
+    new_thread_name = st.text_input("❌ Új szál neve:", placeholder="pl. Munka, Programozás...")
     if st.button("Új szál létrehozása", use_container_width=True):
         cleaned_thread = new_thread_name.strip()
         if cleaned_thread and cleaned_thread not in user_threads:
@@ -1145,7 +1135,6 @@ with st.sidebar:
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
         st.subheader("🎙️ Hang rögzítése")
-        st.checkbox("📟 Walkie-Talkie mód (Azonnali válasz & hang)", key="walkie_talkie", value=False)
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
         if st.session_state.get("voice_playing", False):
@@ -1216,7 +1205,7 @@ if audio:
                 st.error("Groq API kulcs hiányzik a hangfeldolgozáshoz!")
         except Exception as e: st.error(f"Groq Whisper hiba: {e}")
 
-# --- 📑 INTERFACE TABS ---
+# --- INTERFACE TABS ---
 tabs_headers = ["💬 Chat", "📊 Személyes Statisztika"]
 if is_admin:
     tabs_headers.append("👑 Globális Adminisztráció")
@@ -1225,7 +1214,6 @@ tabs = st.tabs(tabs_headers)
 tab_chat = tabs[0]
 tab_monitor = tabs[1]
 
-# --- 📊 SZEMÉLYES STATISZTIKA TAB ---
 with tab_monitor:
     st.subheader(f"📈 {active_chat_user} Statisztikái")
     stats = db_repo.get_system_stats(active_chat_user)
@@ -1250,7 +1238,6 @@ with tab_monitor:
     else:
         st.info("Nincsenek feltöltött dokumentumaid.")
 
-# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
