@@ -1373,7 +1373,7 @@ if is_admin:
                 "llama-3.2-3b-preview": 500000,
                 "llama-3.2-11b-text-preview": 500000
             }
-            max_allowed_tokens = model_limits.get(TEXT_MODEL, 6000)
+            max_allowed_tokens = model_limits.get(TEXT_MODEL, 500000)
             
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
@@ -1412,7 +1412,6 @@ with tab_chat:
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data: st.audio(audio_data, format="audio/mp3")
-
                     python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
 
                     with st.container():
