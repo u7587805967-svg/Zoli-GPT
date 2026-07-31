@@ -1410,8 +1410,13 @@ with tab_chat:
                 if msg["role"] == "assistant":
                     if not st.session_state.mute_voice and idx == len(chat_history) - 1:
                         audio_data = ai_engine.text_to_speech(content)
-                        # Az autoplay=True gondoskodik róla, hogy a generálás után azonnal megszólaljon
-                        if audio_data: st.audio(audio_data, format="audio/mp3", autoplay=True)
+                        if audio_data: 
+                           
+                            b64_audio = base64.b64encode(audio_data).decode("utf-8")
+                            audio_html = f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3"></audio>'
+                            st.markdown(audio_html, unsafe_allow_html=True)
+                            
+                            st.audio(audio_data, format="audio/mp3")
                     python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
 
                     with st.container():
@@ -1458,7 +1463,6 @@ with tab_chat:
             response_placeholder = st.empty()
             
             try:
-                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
                 is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
                 is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
                 
