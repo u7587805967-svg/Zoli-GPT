@@ -25,13 +25,12 @@ import docx
 from docx import Document
 from groq import Groq
 
-# --- ÚJ IMPORTOK A 2. ÉS 3. PONTHOZ ---
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
-# --- ⚙️ 1. GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
+# --- GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
@@ -49,7 +48,6 @@ class AppConfig:
 
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
-# --- ⚙️ INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
 # Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
@@ -58,7 +56,6 @@ if "generating" not in st.session_state:
 else:
     st.session_state.generating = False
 
-# --- BEJELENTKEZÉSI ÉS BIZTONSÁGI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 if "login_attempts" not in st.session_state:
@@ -74,7 +71,7 @@ def hash_password(password: str, salt: str = None) -> tuple:
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
     return key.hex(), salt
 
-# --- 🛠️ 2. ADATBÁZIS INFRASTRUKTÚRA ---
+# --- ADATBÁZIS INFRASTRUKTÚRA ---
 class DatabaseRepository:
     def __init__(self, db_file: str):
         self.db_file = db_file
@@ -108,7 +105,6 @@ class DatabaseRepository:
             try: cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
             except sqlite3.OperationalError: pass
             
-            # ÚJ: Biztonsági só (salt) oszlop hozzáadása a meglévő adatbázishoz
             try: cursor.execute("ALTER TABLE users ADD COLUMN salt TEXT")
             except sqlite3.OperationalError: pass
             
@@ -260,14 +256,13 @@ class DatabaseRepository:
 
 db_repo = DatabaseRepository(cfg.DB_FILE)
 
-# --- 📱 URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
+# --- URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
     if url_user:
         st.session_state.logged_in_user = url_user
 
-# --- BEJELENTKEZŐ ÉS REGISZTRÁCIÓS FELÜLET ---
 if not st.session_state.logged_in_user:
     st.markdown("""
         <style>
@@ -374,7 +369,6 @@ if not st.session_state.logged_in_user:
             st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# Alapértelmezetten a bejelentkezett felhasználó az aktív chat partner
 active_chat_user = st.session_state.logged_in_user
 
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
@@ -383,7 +377,7 @@ is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 if is_admin and "admin_selected_user" in st.session_state:
     active_chat_user = st.session_state.admin_selected_user
 
-# --- 🎨 UI / UX PRÉMIUM STYLING ---
+# --- UI / UX PRÉMIUM STYLING ---
 st.markdown("""
     <style>
     /* Világoskék és Fekete Ambient Glow & Premium Glassmorphism Háttér */
@@ -531,7 +525,7 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 🧠 3. ASZINKRON AI MOTOR ---
+# --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
         self.db = db_repo
@@ -541,12 +535,11 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
-    # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
+    # --- ADVANCED RAG ---
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
         
-        # Karakter n-gramok generálása a jobb morfológiai illeszkedésért (Magyar nyelvbarát RAG)
         ngrams = {}
         for word in words:
             if len(word) > 3:
@@ -601,7 +594,6 @@ class AsyncAIEngine:
             conn.commit()
             p_bar.empty()
 
-    # --- ADVANCED RAG UPGRADE: Koszinusz hasonlósághoz közeledő n-gram összehasonlítás ---
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
         rows = []
@@ -738,7 +730,7 @@ class AsyncAIEngine:
             return "\n---\n".join(extracted)
         except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
-    # --- ÚJ FUNKCIÓ (2. PONT): MÉLYEBB WEBES TARTALOMOLVASÓ ---
+    # ---  MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
@@ -780,7 +772,6 @@ class AsyncAIEngine:
                 
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
         
-        # 1. Fordítás angolra a Groq segítségével
         try:
             client = Groq(api_key=GROQ_API_KEY)
             res = client.chat.completions.create(
@@ -792,7 +783,7 @@ class AsyncAIEngine:
         except Exception: 
             en_query = clean_query
 
-        # 2. Ingyenes AI képgenerálás (A Pollinations kép API-ja teljesen ingyenes és KULCS NÉLKÜLI)
+        # Ingyenes AI képgenerálás
         try:
             encoded_prompt = urllib.parse.quote(en_query)
             image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
@@ -803,11 +794,9 @@ class AsyncAIEngine:
                 
             base_image = Image.open(io.BytesIO(img_res.content))
             
-            # 3. Animáció készítése tisztán Pythonból (Zoom/Pan effektus)
             frames = []
             width, height = base_image.size
             
-            # 15 képkockát gyártunk le lassan változó kivágással
             for i in range(15):
                 zoom_factor = 1.0 + (i * 0.006) # Finom közelítés
                 new_w = int(width / zoom_factor)
@@ -818,11 +807,9 @@ class AsyncAIEngine:
                 right = left + new_w
                 bottom = top + new_h
                 
-                # Kivágás és visszaméretezés az eredeti méretre
                 frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
                 frames.append(frame)
             
-            # Elmentjük memóriába mint animált GIF-et (a Streamlit st.video és st.image is lejátssza)
             output = io.BytesIO()
             frames[0].save(
                 output,
@@ -833,7 +820,6 @@ class AsyncAIEngine:
                 loop=0
             )
             
-            # Átalakítás Base64-é, így menthető az adatbázisodba is
             b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
             return f"data:image/gif;base64,{b64_gif}"
             
@@ -855,7 +841,7 @@ class AsyncAIEngine:
         text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED EMAIL]', text)
         return re.sub(r'\+?[0-9]{2,4}[-\s]?([0-9]{2,4}[-\s]?){2,3}[0-9]{2,4}', '[REDACTED PHONE]', text)
 
-    # --- MÓDOSÍTOTT FUNKCIÓ (3. PONT): BIZTONSÁGOSABB PYTHON SANDBOX ---
+    # --- BIZTONSÁGOSABB PYTHON SANDBOX ---
     def execute_python_sandbox(self, code: str) -> str:
         import sys
         import io
@@ -886,9 +872,7 @@ class AsyncAIEngine:
             sys.stdout = old_stdout
             return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
 
-# ==============================================================================
-# 🗺️ TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR (OpenStreetMap + OSRM + Leaflet.js)
-# ==============================================================================
+# TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR
 class MapRoutingEngine:
     @staticmethod
     def geocode(location_name: str):
@@ -1033,7 +1017,7 @@ ai_engine = AsyncAIEngine(db_repo, cfg)
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
 
-# ---🧠 HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA 🧠---
+# --- TÖMÖRÍTETT MEMÓRIA LOGIKA ---
 def get_clean_history(history, max_chars, text_model=None):
     truncated = []
     old_messages = []
@@ -1060,7 +1044,7 @@ def get_clean_history(history, max_chars, text_model=None):
         except Exception: pass
     return truncated, compressed
 
-# --- ⚙️ OLDALSÁV ---
+# --- OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
     
@@ -1089,7 +1073,7 @@ with st.sidebar:
         persona = st.selectbox("AI Mód", ["Normál mód", "Zoli mód"])
         persona_prompts = {
             "Normál mód": "Te vagy Zoli, egy rendkívül intelligens, precíz és sokoldalú mesterséges intelligencia asszisztens. "
-                "Kommunikációd stílusa határozott, lényegretörő és szarkasztikus humorral, illetve finom szarkazmussal átszőtt, "
+                "Kommunikációd stílusa határozott, lényegretörő és szarkasztikus humorral, illetve nagyon kemény szarkazmussal átszőtt, "
                 "de a feladatokat (kódolás, elemzés, RAG keresés) mindig maximális szakértelemmel hajtod végre. "
                 "Szigorúan csak tegeződve kommunikálhatsz a felhasználóval, a magázódás szigorúan tiltott! "
                 "Ne pazarold az időt felesleges udvariaskodásra vagy gépies üdvözlésekre; vágj egyből a közepébe. "
@@ -1216,7 +1200,7 @@ if audio:
                 st.error("Groq API kulcs hiányzik a hangfeldolgozáshoz!")
         except Exception as e: st.error(f"Groq Whisper hiba: {e}")
 
-# --- 📑 INTERFACE TABS ---
+# --- INTERFACE TABS ---
 tabs_headers = ["💬 Chat", "📊 Személyes Statisztika"]
 if is_admin:
     tabs_headers.append("👑 Globális Adminisztráció")
@@ -1225,7 +1209,6 @@ tabs = st.tabs(tabs_headers)
 tab_chat = tabs[0]
 tab_monitor = tabs[1]
 
-# --- 📊 SZEMÉLYES STATISZTIKA TAB ---
 with tab_monitor:
     st.subheader(f"📈 {active_chat_user} Statisztikái")
     stats = db_repo.get_system_stats(active_chat_user)
@@ -1250,7 +1233,6 @@ with tab_monitor:
     else:
         st.info("Nincsenek feltöltött dokumentumaid.")
 
-# --- 👑 GLOBÁLIS ADMINISZTRÁCIÓ TAB ---
 if is_admin:
     with tabs[2]:
         st.subheader("👑 Globális Rendszerfelügyelet")
@@ -1343,7 +1325,7 @@ if is_admin:
         else:
             st.info("Még nincs rögzített token használati adat.")
 
-# --- 💬 CHAT INTERFACE ---
+# --- CHAT INTERFACE ---
 with tab_chat:
     alert = db_repo.fetch_latest_alert()
     if alert:
@@ -1445,7 +1427,7 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
-                    # --- 🤖 INTELLIGENS ÁGENS (AGENTIC WORKFLOW) TERVEZÉSI FÁZIS ---
+                    # --- AGENTIC WORKFLOW TERVEZÉSI FÁZIS ---
                     with st.status("🧠 Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -1486,9 +1468,6 @@ with tab_chat:
                             else:
                                 agent_status.write(f"ℹ️ {med_results}")
 
-                        # --- Web Search eszköz végrehajtása ---
-                        # ... (A meglévő Web Search kódod marad itt) ...
-                        # --- RAG eszköz végrehajtása ---
                         if use_rag:
                             agent_status.update(label="📚 Keresés a személyes emlékekben...")
                             rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
@@ -1513,7 +1492,7 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető eredményt.")
 
-                        # --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
+                        # --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA ---
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -1530,7 +1509,7 @@ with tab_chat:
                         if msg["type"] == "text":
                             messages.append({"role": msg["role"], "content": msg["content"]})
                     
-                    # --- MULTIMODÁLIS (VISION) CHAT BEKÖTÉSE (1. PONT) ---
+                    # --- MULTIMODÁLIS (VISION) CHAT BEKÖTÉSE ---
                     if "active_vision_image" in st.session_state and TEXT_MODEL == "llama-3.2-11b-vision-preview":
                         base64_image = base64.b64encode(st.session_state.active_vision_image).decode('utf-8')
                         messages.append({
@@ -1543,7 +1522,7 @@ with tab_chat:
                     else:
                         messages.append({"role": "user", "content": user_input})
                     
-                    # --- NAPTÁR ÉS VILÁGÓRA INTEGRÁCIÓ AZ AI SZÁMÁRA ---
+                    # --- NAPTÁR ÉS VILÁGÓRA INTEGRÁCIÓ ---
                     try:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
@@ -1574,7 +1553,6 @@ with tab_chat:
                                 messages[-1]["content"] = system_context + messages[-1]["content"]
                     except Exception:
                         pass
-                    # --- INTEGRÁCIÓ VÉGE ---
 
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
@@ -1585,15 +1563,15 @@ with tab_chat:
                     if web_sources_text:
                         full_response += web_sources_text
                         
-                    # --- ÚJ: Weboldalak automatikus megnyitásának kezelése ---
+                    # --- Weboldalak automatikus megnyitásának kezelése ---
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
                     
-                    # --- ÚJ: Térkép és Útvonaltervezés kezelése ---
+                    # --- Térkép és Útvonaltervezés kezelése ---
                     route_match = re.search(r'\[ROUTE:\s*([^|]+)\s*\|\s*([^\]]+)\]', display_response)
                     if route_match:
                         display_response = re.sub(r'\[ROUTE:\s*[^|]+\s*\|\s*[^\]]+\]', '', display_response)
-                    # --- ÚJ: Zenelejátszás Regex elkapása ---
+                    # --- Zenelejátszás Regex elkapása ---
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
