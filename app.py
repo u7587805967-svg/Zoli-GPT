@@ -668,11 +668,13 @@ class AsyncAIEngine:
                 return result[0]
 
             async def generate_audio():
+                # ITT ÁLLÍTJUK BE A MÉLY, ROBOTIKUS HANGOT:
+                # pitch="-25Hz" mélyíti a hangot, a rate="-15%" lassítja és gépiesíti
                 communicate = edge_tts.Communicate(
                     clean_text[:1000], 
                     "hu-HU-TamasNeural",
-                    pitch="-20Hz",
-                    rate="30%"
+                    pitch="-25Hz",
+                    rate="-15%"
                 )
                 audio_data = b""
                 async for chunk in communicate.stream():
