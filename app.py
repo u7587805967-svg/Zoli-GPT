@@ -668,7 +668,12 @@ class AsyncAIEngine:
                 return result[0]
 
             async def generate_audio():
-                communicate = edge_tts.Communicate(clean_text[:1000], "hu-HU-TamasNeural")
+		communicate = edge_tts.Communicate(
+                    clean_text[:1000], 
+                    "hu-HU-TamasNeural",
+                    pitch="-25Hz", 
+                    rate="-15%"
+                )
                 audio_data = b""
                 async for chunk in communicate.stream():
                     if chunk["type"] == "audio":
