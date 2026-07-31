@@ -1412,15 +1412,26 @@ with tab_chat:
                 if msg["role"] == "assistant":
                     st.markdown(content)
                     
-                    # --- HANG LEJÁTSZÓ ÉS AUTOMATA BESZÉD ---
-                    if not st.session_state.get("mute_voice", False) and idx == len(chat_history) - 1:
+                    # --- BIZTONSÁGOS ÉS PONTOS LEJÁTSZÁS CSAK A LEGUTOLSÓ ÜZENETHEZ ---
+                    is_last_message = (idx == len(chat_history) - 1)
+                    
+                    if not st.session_state.get("mute_voice", False) and is_last_message:
                         audio_data = ai_engine.text_to_speech(content)
                         if audio_data:
-                            # 1. Automata lejátszás JavaScripttel
+                            # 1. Automata lejátszás JavaScripttel a böngésző falának átütésére
                             b64_audio = base64.b64encode(audio_data).decode("utf-8")
                             js_autoplay = f"""
                             <script>
                                 var audio = new Audio("data:audio/mp3;base64,{b64_audio}");
+                                audio.play().catch(function(error) {{
+                                    console.log("Autoplay blokkolva: ", error);
+                                }});
+                            </script>
+                            """
+                            st.components.v1.html(js_autoplay, height=0)
+                            
+                            # 2. Látható lejátszó közvetlenül a legutolsó üzenet alatt
+                            st.audio(audio_data, format="audio/mp3")
                                 audio.play().catch(function(error) {{
                                     console.log("Autoplay blokkolva: ", error);
                                 }});
