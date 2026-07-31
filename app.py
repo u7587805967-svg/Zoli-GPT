@@ -5,6 +5,7 @@ import httpx
 import re
 import io
 import asyncio
+import concurrent.futures
 import time
 import base64
 import pytz
@@ -12,7 +13,7 @@ import sqlite3
 import urllib.parse
 import json
 import hashlib
-import secrets # <-- ÚJ: Biztonságos só (salt) generálásához
+import secrets
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -63,7 +64,7 @@ if "login_attempts" not in st.session_state:
 if "lockout_until" not in st.session_state:
     st.session_state.lockout_until = 0
 
-# --- 🛡️ BIZTONSÁGOS JELSZÓ HASHELŐ FÜGGVÉNY (PBKDF2-HMAC) ---
+# --- BIZTONSÁGOS JELSZÓ HASHELŐ FÜGGVÉNY (PBKDF2-HMAC) ---
 def hash_password(password: str, salt: str = None) -> tuple:
     if salt is None:
         salt = secrets.token_hex(16)
@@ -679,30 +680,84 @@ class AsyncAIEngine:
             return None
 
     def search_web_sync(self, query: str) -> str:
+        """
+        Továbbfejlesztett, maximális pontosságú webes kereső és tartalom-kivonatoló.
+        Nemcsak a keresési találatokat hozza el, hanem a legjobb találatok 
+        teljes szövegét is beolvassa a háttérben a mélyebb megértéshez.
+        """
         all_results = []
         try:
             with DDGS() as ddgs:
-                res_text = ddgs.text(query, max_results=8)
+                # 1. Általános webes keresés (top 6 találat)
+                res_text = list(ddgs.text(query, max_results=6))
                 if res_text:
                     all_results.extend(res_text)
+                
+                # 2. Hírek keresése a legfrissebb infókért (top 3 találat)
                 try:
-                    res_news = ddgs.news(query, max_results=5)
+                    res_news = list(ddgs.news(query, max_results=3))
                     if res_news:
                         all_results.extend(res_news)
-                except Exception: pass
-        except Exception: pass
+                except Exception: 
+                    pass
+        except Exception as e: 
+            return f"Hiba a keresőmotor elérésekor: {e}"
             
-        if not all_results: return ""
+        if not all_results: 
+            return "Nem találtam releváns információt a weben."
             
+        # Dedikálás és URL-ek összegyűjtése (ismétlődések kiszűrése)
         seen_urls = set()
         unique_results = []
         for r in all_results:
-            url_key = r.get('href') or r.get('url') or r.get('title', '')
-            if url_key not in seen_urls:
+            url_key = r.get('href') or r.get('url')
+            title = r.get('title', 'Nincs cím')
+            body = r.get('body', r.get('snippet', ''))
+            
+            if url_key and url_key not in seen_urls:
                 seen_urls.add(url_key)
-                unique_results.append(r)
+                unique_results.append({
+                    "url": url_key,
+                    "title": title,
+                    "snippet": body
+                })
                 
-        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
+        # 3. Deep Scraping (A top 3 találat tartalmának letöltése párhuzamosan a maximális pontosságért)
+        top_urls = [res["url"] for res in unique_results[:3]]
+        scraped_contents = {}
+        
+        def fetch_content(url):
+            try:
+                # Használjuk a már meglévő weblap-olvasó (scraper) metódust
+                content = self.scrape_url(url)
+                # Csak az első ~2500 karaktert tartjuk meg, hogy ne terheljük túl a kontextus ablakot
+                if not content.startswith("Nem sikerült"):
+                    return url, content[:2500]
+                return url, ""
+            except Exception:
+                return url, ""
+
+        # ThreadPoolExecutor a gyors, aszinkron-jellegű háttérletöltéshez
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_to_url = {executor.submit(fetch_content, url): url for url in top_urls}
+            for future in concurrent.futures.as_completed(future_to_url):
+                url, content = future.result()
+                if content:
+                    scraped_contents[url] = content
+
+        # 4. Válasz formázása a modell (LLM) számára emészthető formába
+        formatted_response = []
+        for res in unique_results[:6]: # A 6 legfontosabb forrást adjuk át
+            url = res["url"]
+            entry = f"Forrás: {res['title']}\nURL: {url}\nRövid kivonat: {res['snippet']}"
+            
+            # Ha sikerült letölteni a weblap belső tartalmát, azt is átadjuk
+            if url in scraped_contents and scraped_contents[url].strip():
+                entry += f"\nTeljes weblap tartalom (részlet a pontosításhoz):\n{scraped_contents[url]}"
+                
+            formatted_response.append(entry)
+            
+        return "\n\n---\n\n".join(formatted_response)
     def search_medical_database(self, query: str) -> str:
         """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
         try:
