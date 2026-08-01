@@ -1312,9 +1312,9 @@ with st.sidebar:
                 st.session_state.mute_voice = True
                 st.session_state.voice_playing = False
                 st.rerun()
-app_mode = st.sidebar.radio("Navigáció", ["AI", "Útvonaltervező"])
+app_mode = st.sidebar.radio("-", ["AI", "Útvonaltervező"])
 
-if app_mode == "🗺️ Útvonaltervező & Térkép":
+if app_mode == "Útvonaltervező":
     AdvancedRoutingEngine.render_route_planner_ui()
 
     st.markdown("---")
