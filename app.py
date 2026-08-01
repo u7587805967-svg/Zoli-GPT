@@ -751,33 +751,54 @@ class AsyncAIEngine:
         return "\n---\n".join(formatted_results)
 
     def search_medical_database(self, query: str) -> str:
-        """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
+        """Keresés a Europe PMC (PubMed) orvosi adatbázisban, bővített metaadatokkal."""
         try:
-            # Csak a legrelevánsabb, szabadon olvasható (Open Access) cikkeket kérjük
-            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}%20OPEN_ACCESS:Y&format=json&resultType=core"
-            response = requests.get(url, timeout=12.0)
+            # Bővített keresés: Open Access cikkek, relevancia szerint rendezve
+            encoded_query = urllib.parse.quote(f"{query} OPEN_ACCESS:Y")
+            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={encoded_query}&format=json&resultType=core&sort=RELEVANCE"
+            
+            # Kicsit nagyobb timeout, ha a szerver lassan válaszolna a komplexebb adatokra
+            response = requests.get(url, timeout=15.0)
             response.raise_for_status()
             
             data = response.json()
             results = data.get("resultList", {}).get("result", [])
             
             if not results:
-                return "Nem találtam releváns orvosi publikációt a hivatalos adatbázisokban."
+                return "Nem találtam releváns orvosi publikációt a megadott kulcsszavakra."
                 
             extracted = []
-            for res in results[:3]: # A top 3 leginkább idevágó tanulmányt vesszük
-                title = res.get("title", "Nincs cím")
-                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
-                # Eltávolítjuk a HTML tageket a kivonatból
-                clean_abstract = re.sub(r'<[^>]+>', '', abstract)
+            for res in results[:15]: 
+                title = res.get("title", "Ismeretlen cím")
+                journal = res.get("journalTitle", "Ismeretlen folyóirat")
+                pub_year = res.get("pubYear", "Ismeretlen év")
                 author_string = res.get("authorString", "Ismeretlen szerzők")
                 
-                extracted.append(f"Cím: {title}\nSzerzők: {author_string}\nKivonat: {clean_abstract}")
+                doi = res.get("doi", "")
+                link = f"https://doi.org/{doi}" if doi else f"https://europepmc.org/article/MED/{res.get('pmid', 'Keresés...')}"
                 
-            return "\n---\n".join(extracted)
+                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
+                clean_abstract = re.sub(r'<[^>]+>', '', abstract).strip()
+                
+                # Kontextusablak védelme: maximum 800 karakter/kivonat
+                if len(clean_abstract) > 800:
+                    clean_abstract = clean_abstract[:797] + "..."
+                
+                entry = (
+                    f"📄 **Cím:** {title}\n"
+                    f"📅 **Folyóirat & Év:** {journal} ({pub_year})\n"
+                    f"👥 **Szerzők:** {author_string}\n"
+                    f"🔗 **Eredeti link:** {link}\n"
+                    f"📝 **Kivonat:** {clean_abstract}"
+                )
+                extracted.append(entry)
+                
+            return "\n\n---\n\n".join(extracted)
             
+        except requests.exceptions.RequestException as e:
+            return f"Hálózati hiba az orvosi adatbázis lekérdezésekor: {e}"
         except Exception as e:
-            return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
+            return f"Váratlan hiba az orvosi adatbázis feldolgozásakor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
