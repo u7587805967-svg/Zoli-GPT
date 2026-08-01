@@ -733,7 +733,6 @@ class AsyncAIEngine:
                         "url": url_key,
                         "snippet": snippet.strip(),
                         "date_str": date_str,
-                        # Pontozás: A hosszabb kivonat valószínűleg több kontextust ad az AI-nak
                         "score": len(snippet) 
                     })
                 
@@ -749,7 +748,7 @@ class AsyncAIEngine:
             )
             
         return "\n---\n".join(formatted_results)
-        except Exception as e:
+	except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
