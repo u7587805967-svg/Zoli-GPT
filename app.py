@@ -739,7 +739,6 @@ class AsyncAIEngine:
         unique_results.sort(key=lambda x: x["score"], reverse=True)
         top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
         
- # --- A WEBES KERESŐ FÜGGVÉNY VÉGE ---
         formatted_results = []
         for r in top_results:
             formatted_results.append(
@@ -749,159 +748,8 @@ class AsyncAIEngine:
             )
             
         return "\n---\n".join(formatted_results)
-
-    def search_medical_database(self, query: str) -> str:
-        """Keresés a Europe PMC (PubMed) orvosi adatbázisban, bővített metaadatokkal."""
-        try:
-            # Bővített keresés: Open Access cikkek, relevancia szerint rendezve
-            encoded_query = urllib.parse.quote(f"{query} OPEN_ACCESS:Y")
-            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={encoded_query}&format=json&resultType=core&sort=RELEVANCE"
-            
-            # Kicsit nagyobb timeout, ha a szerver lassan válaszolna a komplexebb adatokra
-            response = requests.get(url, timeout=15.0)
-            response.raise_for_status()
-            
-            data = response.json()
-            results = data.get("resultList", {}).get("result", [])
-            
-            if not results:
-                return "Nem találtam releváns orvosi publikációt a megadott kulcsszavakra."
-                
-            extracted = []
-            for res in results[:30]: 
-                title = res.get("title", "Ismeretlen cím")
-                journal = res.get("journalTitle", "Ismeretlen folyóirat")
-                pub_year = res.get("pubYear", "Ismeretlen év")
-                author_string = res.get("authorString", "Ismeretlen szerzők")
-                
-                doi = res.get("doi", "")
-                link = f"https://doi.org/{doi}" if doi else f"https://europepmc.org/article/MED/{res.get('pmid', 'Keresés...')}"
-                
-                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
-                clean_abstract = re.sub(r'<[^>]+>', '', abstract).strip()
-                
-                # Kontextusablak védelme: maximum 800 karakter/kivonat
-                if len(clean_abstract) > 800:
-                    clean_abstract = clean_abstract[:797] + "..."
-                
-                entry = (
-                    f"📄 **Cím:** {title}\n"
-                    f"📅 **Folyóirat & Év:** {journal} ({pub_year})\n"
-                    f"👥 **Szerzők:** {author_string}\n"
-                    f"🔗 **Eredeti link:** {link}\n"
-                    f"📝 **Kivonat:** {clean_abstract}"
-                )
-                extracted.append(entry)
-                
-            return "\n\n---\n\n".join(extracted)
-            
-        except requests.exceptions.RequestException as e:
-            return f"Hálózati hiba az orvosi adatbázis lekérdezésekor: {e}"
         except Exception as e:
-            return f"Váratlan hiba az orvosi adatbázis feldolgozásakor: {e}"
-import folium
-from streamlit_folium import st_folium
-
-class AdvancedRoutingEngine:
-    """Útvonaltervező és térképes vizualizációs alrendszer."""
-    
-    @staticmethod
-    def get_coordinates_from_query(location_name: str) -> tuple:
-        """Egyszerű geokódolás a Nominatim API (OpenStreetMap) használatával kulcs nélkül."""
-        try:
-            url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_name)}&format=json&limit=1"
-            headers = {'User-Agent': 'ZoliGPT-RoutingModule/1.0'}
-            response = requests.get(url, headers=headers, timeout=5.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    return float(data[0]['lat']), float(data[0]['lon']), data[0]['display_name']
-        except Exception:
-            pass
-        return None, None, None
-
-    @staticmethod
-    def calculate_osrm_route(start_coords: tuple, end_coords: tuple, profile: str = "driving") -> dict:
-        """Valós útvonal és távolság lekérdezése az ingyenes OSRM (Open Source Routing Machine) szerverről."""
-        try:
-            # profile: driving, walking, cycling
-            url = f"http://router.project-osrm.org/route/v1/{profile}/{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}?overview=full&geometries=geojson"
-            response = requests.get(url, timeout=6.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("routes"):
-                    route = data["routes"][0]
-                    return {
-                        "distance_km": route["distance"] / 1000.0,
-                        "duration_min": route["duration"] / 60.0,
-                        "geometry": route["geometry"]["coordinates"] # [[lon, lat], ...]
-                    }
-        except Exception:
-            pass
-        return None
-
-    @classmethod
-    def render_route_planner_ui(cls):
-        st.markdown("### 🗺️ Intelligens Útvonaltervező & Navigáció")
-        st.caption("Tervezz meg túrákat, városnézéseket vagy utazásokat valós OpenStreetMap adatokkal.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            start_loc = st.text_input("📍 Kiindulópont:", placeholder="pl. Budapest, Hősök tere")
-        with col2:
-            end_loc = st.text_input("🏁 Célállomás:", placeholder="pl. Balatonfüred, Tagore sétány")
-            
-        transport_mode = st.selectbox(
-            "Közlekedési mód:",
-            options=["driving", "walking", "cycling"],
-            format_func=lambda x: {"driving": "🚗 Autós (Leggyorsabb)", "walking": "🚶 Gyalogos túra", "cycling": "🚴 Kerékpáros"}[x]
-        )
-        
-        if st.button("Útvonal kiszámítása és Térkép generálása", type="primary"):
-            if not start_loc or not end_loc:
-                st.warning("Kérlek, add meg a kiindulási és a célhelyszínt is!")
-                return
-                
-            with st.spinner("🌍 Koordináták feloldása és útvonal optimalizálása..."):
-                lat1, lon1, name1 = cls.get_coordinates_from_query(start_loc)
-                lat2, lon2, name2 = cls.get_coordinates_from_query(end_loc)
-                
-                if lat1 is None or lat2 is None:
-                    st.error("Nem sikerült azonosítani az egyik helyszínt a térképen. Kérlek, pontosítsd a nevet!")
-                    return
-                    
-                st.success(f"**Indulás:** {name1}\n\n**Érkezés:** {name2}")
-                
-                # OSRM útvonal lekérdezés
-                route_data = cls.calculate_osrm_route((lat1, lon1), (lat2, lon2), profile=transport_mode)
-                
-                # Leaflet térkép készítése
-                m = folium.Map(location=[(lat1 + lat2)/2, (lon1 + lon2)/2], zoom_start=9)
-                
-                # Jelölők (Markers)
-                folium.Marker([lat1, lon1], popup=f"<b>Kiindulás:</b> {name1}", icon=folium.Icon(color="green", icon="play")).add_to(m)
-                folium.Marker([lat2, lon2], popup=f"<b>Cél:</b> {name2}", icon=folium.Icon(color="red", icon="stop")).add_to(m)
-                
-                if route_data:
-                    # Koordináták átfordítása Folium formátumra (lat, lon)
-                    latlon_points = [[coord[1], coord[0]] for coord in route_data["geometry"]]
-                    folium.PolyLine(latlon_points, color="#0ea5e9", weight=5, opacity=0.8).add_to(m)
-                    
-                    # Metrikák kijelzése
-                    m_col1, m_col2 = st.columns(2)
-                    with m_col1:
-                        st.metric("Távolság", f"{route_data['distance_km']:.1f} km")
-                    with m_col2:
-                        hours = int(route_data['duration_min'] // 60)
-                        minutes = int(route_data['duration_min'] % 60)
-                        duration_str = f"{hours} óra {minutes} perc" if hours > 0 else f"{minutes} perc"
-                        st.metric("Becsült menetidő", duration_str)
-                else:
-                    st.info("Közvetlen útvonal-geometria nem érhető el, légvonalbeli összeköttetés jelenik meg.")
-                    folium.PolyLine([[lat1, lon1], [lat2, lon2]], color="orange", weight=4, dash_array="5, 5").add_to(m)
-                
-                # Térkép renderelése a Streamlit felületén
-                st_folium(m, width=700, height=500)
+            return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
@@ -1312,10 +1160,6 @@ with st.sidebar:
                 st.session_state.mute_voice = True
                 st.session_state.voice_playing = False
                 st.rerun()
-app_mode = st.sidebar.radio("Navigáció", ["AI", "Útvonaltervező"])
-
-if app_mode == "🗺️ Útvonaltervező & Térkép":
-    AdvancedRoutingEngine.render_route_planner_ui()
 
     st.markdown("---")
     if st.button("🚪 Kijelentkezés", use_container_width=True):
