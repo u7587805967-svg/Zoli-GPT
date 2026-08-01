@@ -1312,7 +1312,7 @@ with st.sidebar:
                 st.session_state.mute_voice = True
                 st.session_state.voice_playing = False
                 st.rerun()
-app_mode = st.sidebar.radio("Navigáció", ["💬 Csevegés & AI", "📚 Dokumentumok & RAG", "🗺️ Útvonaltervező & Térkép", "📊 Rendszer Statisztikák"])
+app_mode = st.sidebar.radio("Navigáció", ["AI", "Útvonaltervező"])
 
 if app_mode == "🗺️ Útvonaltervező & Térkép":
     AdvancedRoutingEngine.render_route_planner_ui()
