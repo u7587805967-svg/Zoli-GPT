@@ -768,7 +768,7 @@ class AsyncAIEngine:
                 return "Nem találtam releváns orvosi publikációt a megadott kulcsszavakra."
                 
             extracted = []
-            for res in results[:15]: 
+            for res in results[:30]: 
                 title = res.get("title", "Ismeretlen cím")
                 journal = res.get("journalTitle", "Ismeretlen folyóirat")
                 pub_year = res.get("pubYear", "Ismeretlen év")
