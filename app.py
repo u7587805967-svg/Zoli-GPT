@@ -681,55 +681,74 @@ class AsyncAIEngine:
             return None
 
     def search_web_sync(self, query: str) -> str:
+        import concurrent.futures
+        
         all_results = []
-        try:
-            with DDGS() as ddgs:
-                res_text = ddgs.text(query, max_results=8)
-                if res_text:
-                    all_results.extend(res_text)
-                try:
-                    res_news = ddgs.news(query, max_results=5)
-                    if res_news:
-                        all_results.extend(res_news)
-                except Exception: pass
-        except Exception: pass
+        
+        def fetch_text():
+            try:
+                with DDGS() as ddgs:
+                    return list(ddgs.text(query, max_results=12, timelimit="y", safesearch="moderate"))
+            except Exception as e:
+                return []
+
+        def fetch_news():
+            try:
+                with DDGS() as ddgs:
+                    return list(ddgs.news(query, max_results=6, timelimit="w", safesearch="moderate"))
+            except Exception:
+                return []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_text = executor.submit(fetch_text)
+            future_news = executor.submit(fetch_news)
             
-        if not all_results: return ""
+            res_text = future_text.result()
+            res_news = future_news.result()
+
+        if res_news:
+            all_results.extend(res_news)
+        if res_text:
+            all_results.extend(res_text)
+
+        if not all_results:
+            return "A weben nem találtam friss és releváns információt a kérdéshez."
             
         seen_urls = set()
         unique_results = []
+        
         for r in all_results:
             url_key = r.get('href') or r.get('url') or r.get('title', '')
-            if url_key not in seen_urls:
+            if url_key not in seen_urls and url_key:
                 seen_urls.add(url_key)
-                unique_results.append(r)
                 
-        return "\n---\n".join([f"Forrás: {r.get('title', 'Nincs cím')}\nKivonat: {r.get('body', r.get('snippet', ''))}" for r in unique_results[:12]])
-    def search_medical_database(self, query: str) -> str:
-        """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
-        try:
-            # Csak a legrelevánsabb, szabadon olvasható (Open Access) cikkeket kérjük
-            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}%20OPEN_ACCESS:Y&format=json&resultType=core"
-            response = requests.get(url, timeout=12.0)
-            response.raise_for_status()
+                title = r.get('title', 'Nincs cím')
+                snippet = r.get('body') or r.get('snippet') or ''
+                date = r.get('date', '') 
+                
+                if len(snippet.strip()) > 30: 
+                    date_str = f" (Dátum: {date[:10]})" if date else ""
+                    unique_results.append({
+                        "title": title,
+                        "url": url_key,
+                        "snippet": snippet.strip(),
+                        "date_str": date_str,
+                        # Pontozás: A hosszabb kivonat valószínűleg több kontextust ad az AI-nak
+                        "score": len(snippet) 
+                    })
+                
+        unique_results.sort(key=lambda x: x["score"], reverse=True)
+        top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
+        
+        formatted_results = []
+        for r in top_results:
+            formatted_results.append(
+                f"Forrás: {r['title']}{r['date_str']}\n"
+                f"URL: {r['url']}\n"
+                f"Kivonat: {r['snippet']}"
+            )
             
-            data = response.json()
-            results = data.get("resultList", {}).get("result", [])
-            
-            if not results:
-                return "Nem találtam releváns orvosi publikációt a hivatalos adatbázisokban."
-                
-            extracted = []
-            for res in results[:3]: # A top 3 leginkább idevágó tanulmányt vesszük
-                title = res.get("title", "Nincs cím")
-                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
-                # Eltávolítjuk a HTML tageket a kivonatból
-                clean_abstract = re.sub(r'<[^>]+>', '', abstract)
-                author_string = res.get("authorString", "Ismeretlen szerzők")
-                
-                extracted.append(f"Cím: {title}\nSzerzők: {author_string}\nKivonat: {clean_abstract}")
-                
-            return "\n---\n".join(extracted)
+        return "\n---\n".join(formatted_results)
         except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
