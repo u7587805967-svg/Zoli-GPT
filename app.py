@@ -748,7 +748,7 @@ class AsyncAIEngine:
             )
             
         return "\n---\n".join(formatted_results)
-	except Exception as e:
+        except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
