@@ -1232,9 +1232,9 @@ class AdvancedRoutingEngine:
 
         col1, col2 = st.columns(2)
         with col1:
-            start_loc = st.text_input("Kiindulópont:", key="route_start_input")
+            start_loc = st.text_input("📍 Kiindulópont:", key="route_start_input")
         with col2:
-            end_loc = st.text_input("Célállomás:", key="route_end_input")
+            end_loc = st.text_input("🏁 Célállomás:", key="route_end_input")
             
         transport_mode = st.selectbox(
             "Közlekedési mód:",
