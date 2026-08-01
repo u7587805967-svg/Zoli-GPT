@@ -688,21 +688,21 @@ class AsyncAIEngine:
         def fetch_text():
             try:
                 with DDGS() as ddgs:
-                    return list(ddgs.text(query, max_results=10, timelimit="y", safesearch="moderate"))
-            except Exception:
+                    return list(ddgs.text(query, max_results=12, timelimit="y", safesearch="moderate"))
+            except Exception as e:
                 return []
 
         def fetch_news():
             try:
                 with DDGS() as ddgs:
-                    return list(ddgs.news(query, max_results=5, timelimit="w", safesearch="moderate"))
+                    return list(ddgs.news(query, max_results=6, timelimit="w", safesearch="moderate"))
             except Exception:
                 return []
 
-        # Párhuzamos lekérdezés a DuckDuckGo-ról
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             future_text = executor.submit(fetch_text)
             future_news = executor.submit(fetch_news)
+            
             res_text = future_text.result()
             res_news = future_news.result()
 
@@ -716,68 +716,39 @@ class AsyncAIEngine:
             
         seen_urls = set()
         unique_results = []
+        
         for r in all_results:
             url_key = r.get('href') or r.get('url') or r.get('title', '')
             if url_key not in seen_urls and url_key:
                 seen_urls.add(url_key)
+                
                 title = r.get('title', 'Nincs cím')
                 snippet = r.get('body') or r.get('snippet') or ''
-                date = r.get('date', '')
-                unique_results.append({
-                    "title": title,
-                    "url": url_key,
-                    "snippet": snippet.strip(),
-                    "date": date
-                })
-
-        # --- 🚀 ÚJ: MÉLY WEBOLDAL TARTALOM LETÖLTÉS (SCRAPING) A HAJSZÁLPONTOS VÁLASZOKÉRT ---
-        def scrape_page_content(url: str) -> str:
-            try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-                response = requests.get(url, headers=headers, timeout=4.0)
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    # Felesleges zajos HTML elemek eltávolítása
-                    for script in soup(["script", "style", "nav", "footer", "header", "aside", "form"]):
-                        script.decompose()
-                    text = soup.get_text(separator=' ', strip=True)
-                    # A szöveg korlátozása, hogy ne robbantsa szét az AI kontextus ablakát (max 1500 karakter/oldal)
-                    return text[:1500]
-            except Exception:
-                pass
-            return ""
-
-        # A legígéretesebb top 3 találat teljes oldalának letöltése párhuzamos szálakon
-        top_targets = unique_results[:3]
-        scraped_contents = {}
+                date = r.get('date', '') 
+                
+                if len(snippet.strip()) > 30: 
+                    date_str = f" (Dátum: {date[:10]})" if date else ""
+                    unique_results.append({
+                        "title": title,
+                        "url": url_key,
+                        "snippet": snippet.strip(),
+                        "date_str": date_str,
+                        "score": len(snippet) 
+                    })
+                
+        unique_results.sort(key=lambda x: x["score"], reverse=True)
+        top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as scraper_executor:
-            future_to_url = {scraper_executor.submit(scrape_page_content, item["url"]): item["url"] for item in top_targets}
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    scraped_contents[url] = future.result()
-                except Exception:
-                    scraped_contents[url] = ""
-
+ # --- A WEBES KERESŐ FÜGGVÉNY VÉGE ---
         formatted_results = []
-        for idx, r in enumerate(unique_results[:8]):
-            url = r["url"]
-            full_page_text = scraped_contents.get(url, "")
-            
-            # Ha sikerült letölteni a teljes oldalt, azt adjuk át, különben marad a keresési snippet
-            content_block = full_page_text if full_page_text else r["snippet"]
-            date_str = f" (Dátum: {r['date'][:10]})" if r['date'] else ""
-            
+        for r in top_results:
             formatted_results.append(
-                f"### Forrás {idx+1}: {r['title']}{date_str}\n"
-                f"URL: {url}\n"
-                f"Részletes tartalom:\n{content_block}"
+                f"Forrás: {r['title']}{r['date_str']}\n"
+                f"URL: {r['url']}\n"
+                f"Kivonat: {r['snippet']}"
             )
-
-        return "\n\n---\n\n".join(formatted_results)
+            
+        return "\n---\n".join(formatted_results)
 
     def search_medical_database(self, query: str) -> str:
         """Keresés a Europe PMC (PubMed) orvosi adatbázisban, bővített metaadatokkal."""
@@ -876,9 +847,9 @@ class AdvancedRoutingEngine:
         
         col1, col2 = st.columns(2)
         with col1:
-            start_loc = st.text_input("Kiindulópont:", placeholder="pl. Budapest, Hősök tere")
+            start_loc = st.text_input("📍 Kiindulópont:", placeholder="pl. Budapest, Hősök tere")
         with col2:
-            end_loc = st.text_input("Célállomás:", placeholder="pl. Balatonfüred, Tagore sétány")
+            end_loc = st.text_input("🏁 Célállomás:", placeholder="pl. Balatonfüred, Tagore sétány")
             
         transport_mode = st.selectbox(
             "Közlekedési mód:",
