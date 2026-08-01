@@ -1186,114 +1186,6 @@ def show_route_widget(start_loc: str, end_loc: str):
     with st.expander("📍 Lépésről lépésre útbaigazítás", expanded=False):
         for idx, step in enumerate(route['steps'], 1):
             st.write(f"**{idx}.** {step['instruction']} *({step['distance']} m)*")
-class AdvancedRoutingEngine:
-    """Útvonaltervező és térképes vizualizációs alrendszer (Session State támogatással)."""
-    
-    @staticmethod
-    def get_coordinates_from_query(location_name: str) -> tuple:
-        try:
-            url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(location_name)}&format=json&limit=1"
-            headers = {'User-Agent': 'ZoliGPT-RoutingModule/1.0'}
-            response = requests.get(url, headers=headers, timeout=5.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    return float(data[0]['lat']), float(data[0]['lon']), data[0]['display_name']
-        except Exception:
-            pass
-        return None, None, None
-
-    @staticmethod
-    def calculate_osrm_route(start_coords: tuple, end_coords: tuple, profile: str = "driving") -> dict:
-        try:
-            url = f"http://router.project-osrm.org/route/v1/{profile}/{start_coords[1]},{start_coords[0]};{end_coords[1]},{end_coords[0]}?overview=full&geometries=geojson"
-            response = requests.get(url, timeout=6.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("routes"):
-                    route = data["routes"][0]
-                    return {
-                        "distance_km": route["distance"] / 1000.0,
-                        "duration_min": route["duration"] / 60.0,
-                        "geometry": route["geometry"]["coordinates"]
-                    }
-        except Exception:
-            pass
-        return None
-
-    @classmethod
-    def render_route_planner_ui(cls):
-        st.markdown("### 🗺️ Intelligens Útvonaltervező & Navigáció")
-        st.caption("Tervezz meg túrákat vagy utazásokat valós OpenStreetMap adatokkal.")
-        
-        # Session state inicializálása, hogy ne veszlődjön el a tartalom
-        if "route_cache" not in st.session_state:
-            st.session_state.route_cache = None
-
-        col1, col2 = st.columns(2)
-        with col1:
-            start_loc = st.text_input("📍 Kiindulópont:", key="route_start_input")
-        with col2:
-            end_loc = st.text_input("🏁 Célállomás:", key="route_end_input")
-            
-        transport_mode = st.selectbox(
-            "Közlekedési mód:",
-            options=["driving", "walking", "cycling"],
-            format_func=lambda x: {"driving": "🚗 Autós (Leggyorsabb)", "walking": "🚶 Gyalogos túra", "cycling": "🚴 Kerékpáros"}[x],
-            key="route_mode_input"
-        )
-        
-        if st.button("Útvonal kiszámítása és Térkép generálása", type="primary"):
-            if not start_loc or not end_loc:
-                st.warning("Kérlek, add meg a kiindulási és a célhelyszínt is!")
-            else:
-                with st.spinner("🌍 Koordináták feloldása és útvonal optimalizálása..."):
-                    lat1, lon1, name1 = cls.get_coordinates_from_query(start_loc)
-                    lat2, lon2, name2 = cls.get_coordinates_from_query(end_loc)
-                    
-                    if lat1 is None or lat2 is None:
-                        st.error("Nem sikerült azonosítani az egyik helyszínt a térképen. Kérlek, pontosítsd a nevet!")
-                    else:
-                        route_data = cls.calculate_osrm_route((lat1, lon1), (lat2, lon2), profile=transport_mode)
-                        
-                        # Eltároljuk az eredményt a session_state-ben, így megmarad!
-                        st.session_state.route_cache = {
-                            "lat1": lat1, "lon1": lon1, "name1": name1,
-                            "lat2": lat2, "lon2": lon2, "name2": name2,
-                            "route_data": route_data
-                        }
-
-        # Ha van letárolt útvonal az állapotban, folyamatosan megjelenítjük (nem tűnik el)
-        if st.session_state.route_cache:
-            cache = st.session_state.route_cache
-            st.success(f"**Indulás:** {cache['name1']}\n\n**Érkezés:** {cache['name2']}")
-            
-            m = folium.Map(location=[(cache['lat1'] + cache['lat2'])/2, (cache['lon1'] + cache['lon2'])/2], zoom_start=9)
-            
-            folium.Marker([cache['lat1'], cache['lon1']], popup=f"<b>Kiindulás:</b> {cache['name1']}", icon=folium.Icon(color="green", icon="play")).add_to(m)
-            folium.Marker([cache['lat2'], cache['lon2']], popup=f"<b>Cél:</b> {cache['name2']}", icon=folium.Icon(color="red", icon="stop")).add_to(m)
-            
-            if cache["route_data"]:
-                latlon_points = [[coord[1], coord[0]] for coord in cache["route_data"]["geometry"]]
-                folium.PolyLine(latlon_points, color="#0ea5e9", weight=5, opacity=0.8).add_to(m)
-                
-                m_col1, m_col2 = st.columns(2)
-                with m_col1:
-                    st.metric("Távolság", f"{cache['route_data']['distance_km']:.1f} km")
-                with m_col2:
-                    hours = int(cache['route_data']['duration_min'] // 60)
-                    minutes = int(cache['route_data']['duration_min'] % 60)
-                    duration_str = f"{hours} óra {minutes} perc" if hours > 0 else f"{minutes} perc"
-                    st.metric("Becsült menetidő", duration_str)
-            else:
-                st.info("Közvetlen útvonal-geometria nem érhető el, légvonalbeli összeköttetés jelenik meg.")
-                folium.PolyLine([[cache['lat1'], cache['lon1']], [cache['lat2'], cache['lon2']]], color="orange", weight=4, dash_array="5, 5").add_to(m)
-            
-            st_folium(m, width=700, height=500)
-            
-            if st.button("Térkép / Útvonal törlése"):
-                st.session_state.route_cache = None
-                st.rerun()
 
 # --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 ai_engine = AsyncAIEngine(db_repo, cfg)
@@ -1420,9 +1312,9 @@ with st.sidebar:
                 st.session_state.mute_voice = True
                 st.session_state.voice_playing = False
                 st.rerun()
-app_mode = st.sidebar.radio("-", ["AI", "Útvonaltervező"])
+app_mode = st.sidebar.radio("Navigáció", ["AI", "Útvonaltervező"])
 
-if app_mode == "Útvonaltervező":
+if app_mode == "🗺️ Útvonaltervező & Térkép":
     AdvancedRoutingEngine.render_route_planner_ui()
 
     st.markdown("---")
