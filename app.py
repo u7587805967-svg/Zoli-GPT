@@ -739,6 +739,7 @@ class AsyncAIEngine:
         unique_results.sort(key=lambda x: x["score"], reverse=True)
         top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
         
+ # --- A WEBES KERESŐ FÜGGVÉNY VÉGE ---
         formatted_results = []
         for r in top_results:
             formatted_results.append(
@@ -748,6 +749,33 @@ class AsyncAIEngine:
             )
             
         return "\n---\n".join(formatted_results)
+
+    def search_medical_database(self, query: str) -> str:
+        """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
+        try:
+            # Csak a legrelevánsabb, szabadon olvasható (Open Access) cikkeket kérjük
+            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}%20OPEN_ACCESS:Y&format=json&resultType=core"
+            response = requests.get(url, timeout=12.0)
+            response.raise_for_status()
+            
+            data = response.json()
+            results = data.get("resultList", {}).get("result", [])
+            
+            if not results:
+                return "Nem találtam releváns orvosi publikációt a hivatalos adatbázisokban."
+                
+            extracted = []
+            for res in results[:3]: # A top 3 leginkább idevágó tanulmányt vesszük
+                title = res.get("title", "Nincs cím")
+                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
+                # Eltávolítjuk a HTML tageket a kivonatból
+                clean_abstract = re.sub(r'<[^>]+>', '', abstract)
+                author_string = res.get("authorString", "Ismeretlen szerzők")
+                
+                extracted.append(f"Cím: {title}\nSzerzők: {author_string}\nKivonat: {clean_abstract}")
+                
+            return "\n---\n".join(extracted)
+            
         except Exception as e:
             return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
