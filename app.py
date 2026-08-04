@@ -738,30 +738,6 @@ class AsyncAIEngine:
                 
         unique_results.sort(key=lambda x: x["score"], reverse=True)
         top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
-def analyze_image(self, image_bytes: bytes, prompt: str = "") -> str:
-    """Képanalízis és matek/feladat megoldás Groq Vision AI segítségével."""
-    if not GROQ_API_KEY:
-        return "❌ Nincs konfigurálva Groq API kulcs!"
-    try:
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        client = Groq(api_key=GROQ_API_KEY)
-        
-        user_prompt = prompt if prompt.strip() else "Elemezd a képet részletesen, és oldd meg a rajta lévő feladatot lépésről lépésre!"
-        
-        response = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }],
-            max_tokens=1500
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Hiba a képanalízis során: {e}"
         
  # --- A WEBES KERESŐ FÜGGVÉNY VÉGE ---
         formatted_results = []
