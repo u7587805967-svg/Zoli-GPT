@@ -535,7 +535,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview", "qwen-2.5-coder-32b"]
 
     # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
     def compute_simple_tfidf_vector(self, text: str) -> list:
