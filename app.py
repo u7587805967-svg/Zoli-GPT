@@ -682,20 +682,22 @@ class AsyncAIEngine:
 
     def search_web_sync(self, query: str) -> str:
         import concurrent.futures
+        import numpy as np
         
         all_results = []
         
+        # 1. Párhuzamos adatlekérés a webről (Szöveg + Hírek)
         def fetch_text():
             try:
                 with DDGS() as ddgs:
-                    return list(ddgs.text(query, max_results=12, timelimit="y", safesearch="moderate"))
-            except Exception as e:
+                    return list(ddgs.text(query, max_results=15, timelimit="y", safesearch="moderate"))
+            except Exception:
                 return []
 
         def fetch_news():
             try:
                 with DDGS() as ddgs:
-                    return list(ddgs.news(query, max_results=6, timelimit="w", safesearch="moderate"))
+                    return list(ddgs.news(query, max_results=8, timelimit="w", safesearch="moderate"))
             except Exception:
                 return []
 
@@ -717,6 +719,10 @@ class AsyncAIEngine:
         seen_urls = set()
         unique_results = []
         
+        # 2. A keresőkifejezés vektorizálása a pontos rangsoroláshoz
+        q_map = self.compute_simple_tfidf_vector(query)
+        q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values())) if q_map else 0
+        
         for r in all_results:
             url_key = r.get('href') or r.get('url') or r.get('title', '')
             if url_key not in seen_urls and url_key:
@@ -727,26 +733,48 @@ class AsyncAIEngine:
                 date = r.get('date', '') 
                 
                 if len(snippet.strip()) > 30: 
+                    # --- ÚJ: Szemantikus relevancia számítás a buta karakterhossz helyett ---
+                    score = 0.0
+                    if q_magnitude > 0:
+                        # A címet és a kivonatot is elemezzük
+                        snippet_map = self.compute_simple_tfidf_vector(snippet + " " + title)
+                        snippet_magnitude = np.sqrt(sum(v ** 2 for v in snippet_map.values()))
+                        
+                        if snippet_magnitude > 0:
+                            intersection = sum(q_map[k] * snippet_map.get(k, 0) for k in q_map if k in snippet_map)
+                            score = float(intersection / (q_magnitude * snippet_magnitude))
+                    
+                    # Frissességi bónusz a híreknek
+                    if date:
+                        score += 0.1 
+
                     date_str = f" (Dátum: {date[:10]})" if date else ""
                     unique_results.append({
                         "title": title,
                         "url": url_key,
                         "snippet": snippet.strip(),
                         "date_str": date_str,
-                        "score": len(snippet) 
+                        "score": score 
                     })
                 
+        # 3. Rendezzük szigorúan a matematikai relevancia alapján csökkenő sorrendbe
         unique_results.sort(key=lambda x: x["score"], reverse=True)
-        top_results = unique_results[:10] # Szigorú limit, hogy ne haladja meg az AI kontextus ablakát
         
- # --- A WEBES KERESŐ FÜGGVÉNY VÉGE ---
+        # Csak a legeslegjobb 6 találatot tartjuk meg, hogy az LLM ne zavarodjon össze a zajtól
+        top_results = unique_results[:6] 
+        
         formatted_results = []
         for r in top_results:
-            formatted_results.append(
-                f"Forrás: {r['title']}{r['date_str']}\n"
-                f"URL: {r['url']}\n"
-                f"Kivonat: {r['snippet']}"
-            )
+            # Csak azokat adjuk át, amiknek van valami közük a témához (kiszűrjük a 0 pontos szemetet)
+            if r["score"] > 0 or not q_map: 
+                formatted_results.append(
+                    f"Forrás: {r['title']}{r['date_str']}\n"
+                    f"URL: {r['url']}\n"
+                    f"Kivonat: {r['snippet']}"
+                )
+            
+        if not formatted_results:
+            return "A weben talált információk nem voltak elég relevánsak a kérdéshez."
             
         return "\n---\n".join(formatted_results)
 
