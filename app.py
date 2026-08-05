@@ -683,7 +683,6 @@ class AsyncAIEngine:
     def search_web_sync(self, query: str) -> str:
         import concurrent.futures
         import numpy as np
-        
         all_results = []
         
         # 1. Párhuzamos adatlekérés a webről (Szöveg + Hírek)
@@ -704,7 +703,6 @@ class AsyncAIEngine:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             future_text = executor.submit(fetch_text)
             future_news = executor.submit(fetch_news)
-            
             res_text = future_text.result()
             res_news = future_news.result()
 
@@ -715,149 +713,132 @@ class AsyncAIEngine:
 
         if not all_results:
             return "A weben nem találtam friss és releváns információt a kérdéshez."
-            
+
         seen_urls = set()
         unique_results = []
-        
+
         # 2. A keresőkifejezés vektorizálása a pontos rangsoroláshoz
         q_map = self.compute_simple_tfidf_vector(query)
         q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values())) if q_map else 0
-        
+
         for r in all_results:
             url_key = r.get('href') or r.get('url') or r.get('title', '')
             if url_key not in seen_urls and url_key:
                 seen_urls.add(url_key)
-                
                 title = r.get('title', 'Nincs cím')
                 snippet = r.get('body') or r.get('snippet') or ''
-                date = r.get('date', '') 
+                date = r.get('date', '')
                 
-                if len(snippet.strip()) > 30: 
-                    # --- ÚJ: Szemantikus relevancia számítás a buta karakterhossz helyett ---
+                if len(snippet.strip()) > 30:
                     score = 0.0
                     if q_magnitude > 0:
-                        # A címet és a kivonatot is elemezzük
                         snippet_map = self.compute_simple_tfidf_vector(snippet + " " + title)
                         snippet_magnitude = np.sqrt(sum(v ** 2 for v in snippet_map.values()))
-                        
                         if snippet_magnitude > 0:
                             intersection = sum(q_map[k] * snippet_map.get(k, 0) for k in q_map if k in snippet_map)
                             score = float(intersection / (q_magnitude * snippet_magnitude))
                     
-                    # Frissességi bónusz a híreknek
                     if date:
-                        score += 0.1 
-
+                        score += 0.1
+                        
                     date_str = f" (Dátum: {date[:10]})" if date else ""
+                    
                     unique_results.append({
                         "title": title,
                         "url": url_key,
                         "snippet": snippet.strip(),
                         "date_str": date_str,
-                        "score": score 
+                        "score": score
                     })
-                
-        # 3. Rendezzük szigorúan a matematikai relevancia alapján csökkenő sorrendbe
+
         unique_results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # Csak a legeslegjobb 6 találatot tartjuk meg, hogy az LLM ne zavarodjon össze a zajtól
-        top_results = unique_results[:6] 
-        
+        top_results = unique_results[:6]
+
         formatted_results = []
         for r in top_results:
-            # Csak azokat adjuk át, amiknek van valami közük a témához (kiszűrjük a 0 pontos szemetet)
-            if r["score"] > 0 or not q_map: 
+            if r["score"] > 0 or not q_map:
                 formatted_results.append(
                     f"Forrás: {r['title']}{r['date_str']}\n"
                     f"URL: {r['url']}\n"
                     f"Kivonat: {r['snippet']}"
                 )
-            
+
         if not formatted_results:
             return "A weben talált információk nem voltak elég relevánsak a kérdéshez."
-            
+
         return "\n---\n".join(formatted_results)
 
-import requests
-import xml.etree.ElementTree as ET
-import concurrent.futures
-    def search_medical_database(self, query: str):
+    def search_medical_database(self, query: str) -> str:
+        import requests
+        import xml.etree.ElementTree as ET
+        import concurrent.futures
+
         def fetch_pubmed(query, max_results=2):
-    """Keresés az amerikai PubMed adatbázisban."""
-    try:
-        base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-        search_url = f"{base_url}esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax={max_results}"
-        data = requests.get(search_url, timeout=5).json()
-        id_list = data.get("esearchresult", {}).get("idlist", [])
-        
-        if not id_list: return ""
-        
-        ids = ",".join(id_list)
-        fetch_url = f"{base_url}efetch.fcgi?db=pubmed&id={ids}&retmode=xml"
-        root = ET.fromstring(requests.get(fetch_url, timeout=5).content)
-        
-        results = []
-        for article in root.findall(".//PubmedArticle"):
-            title = article.findtext(".//ArticleTitle", default="Nincs cím")
-            abstract = article.findtext(".//AbstractText", default="Nincs absztrakt.")
-            results.append(f"**[PubMed] {title}**\n{abstract[:600]}...")
-        return "\n\n".join(results)
-    except Exception:
-        return ""
+            """Keresés az amerikai PubMed adatbázisban."""
+            try:
+                base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+                search_url = f"{base_url}esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax={max_results}"
+                data = requests.get(search_url, timeout=5).json()
+                id_list = data.get("esearchresult", {}).get("idlist", [])
+                if not id_list:
+                    return ""
+                ids = ",".join(id_list)
+                fetch_url = f"{base_url}efetch.fcgi?db=pubmed&id={ids}&retmode=xml"
+                root = ET.fromstring(requests.get(fetch_url, timeout=5).content)
+                results = []
+                for article in root.findall(".//PubmedArticle"):
+                    title = article.findtext(".//ArticleTitle", default="Nincs cím")
+                    abstract = article.findtext(".//AbstractText", default="Nincs absztrakt.")
+                    results.append(f"**[PubMed] {title}**\n{abstract[:600]}...")
+                return "\n\n".join(results)
+            except Exception:
+                return ""
 
         def fetch_europe_pmc(query, max_results=2):
-    """Keresés az Európai Élettudományi Adatbázisban (Europe PMC)."""
-    try:
-        url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&resultType=core"
-        resp = requests.get(url, timeout=5).json()
-        results = []
-        for item in resp.get("resultList", {}).get("result", [])[:max_results]:
-            title = item.get("title", "Nincs cím")
-            abstract = item.get("abstractText", "Nincs absztrakt.").replace("<p>", "").replace("</p>", "")
-            results.append(f"**[Europe PMC] {title}**\n{abstract[:600]}...")
-        return "\n\n".join(results)
-    except Exception:
-        return ""
+            """Keresés az Európai Élettudományi Adatbázisban (Europe PMC)."""
+            try:
+                url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&resultType=core"
+                resp = requests.get(url, timeout=5).json()
+                results = []
+                for item in resp.get("resultList", {}).get("result", [])[:max_results]:
+                    title = item.get("title", "Nincs cím")
+                    abstract = item.get("abstractText", "Nincs absztrakt.").replace("<p>", "").replace("</p>", "")
+                    results.append(f"**[Europe PMC] {title}**\n{abstract[:600]}...")
+                return "\n\n".join(results)
+            except Exception:
+                return ""
 
         def fetch_clinical_trials(query, max_results=2):
-    """Keresés a folyamatban lévő klinikai kísérletek között."""
-    try:
-        url = f"https://clinicaltrials.gov/api/v2/studies?query.term={query}&pageSize={max_results}"
-        resp = requests.get(url, timeout=5).json()
-        results = []
-        for study in resp.get("studies", []):
-            protocol = study.get("protocolSection", {})
-            title = protocol.get("identificationModule", {}).get("briefTitle", "Nincs cím")
-            summary = protocol.get("descriptionModule", {}).get("briefSummary", "Nincs leírás.")
-            results.append(f"**[ClinicalTrials] {title}**\n{summary[:600]}...")
-        return "\n\n".join(results)
-    except Exception:
-        return ""
+            """Keresés a folyamatban lévő klinikai kísérletek között."""
+            try:
+                url = f"https://clinicaltrials.gov/api/v2/studies?query.term={query}&pageSize={max_results}"
+                resp = requests.get(url, timeout=5).json()
+                results = []
+                for study in resp.get("studies", []):
+                    protocol = study.get("protocolSection", {})
+                    title = protocol.get("identificationModule", {}).get("briefTitle", "Nincs cím")
+                    summary = protocol.get("descriptionModule", {}).get("briefSummary", "Nincs leírás.")
+                    results.append(f"**[ClinicalTrials] {title}**\n{summary[:600]}...")
+                return "\n\n".join(results)
+            except Exception:
+                return ""
 
-        def advanced_medical_search(query):
-    """
-    Kombinált orvosi keresés több adatbázisban egyszerre (Multithreading).
-    """
-    results = []
-    
-    # A lekérdezések párhuzamos futtatása a gyorsaság érdekében
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_pubmed = executor.submit(fetch_pubmed, query)
-        future_epmc = executor.submit(fetch_europe_pmc, query)
-        future_trials = executor.submit(fetch_clinical_trials, query)
-        
-        results.append(future_pubmed.result())
-        results.append(future_epmc.result())
-        results.append(future_trials.result())
-    
-    # Üres találatok kiszűrése és összefűzés
-    combined_results = "\n\n---\n\n".join([r for r in results if r.strip()])
-    
-    if not combined_results:
-        return "Nem találtam releváns információt a hivatalos orvosi adatbázisokban."
-        
-    return f"### Orvosi Adatbázisok Eredményei:\n{combined_results}"
-    sreturn None
+        results = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_pubmed = executor.submit(fetch_pubmed, query)
+            future_epmc = executor.submit(fetch_europe_pmc, query)
+            future_trials = executor.submit(fetch_clinical_trials, query)
+
+            res_p = future_pubmed.result()
+            res_e = future_epmc.result()
+            res_c = future_trials.result()
+
+            if res_p: results.append(res_p)
+            if res_e: results.append(res_e)
+            if res_c: results.append(res_c)
+
+        final_res = "\n\n".join(results).strip()
+        return final_res if final_res else "Nem található orvosi adat a megadott keresésre."
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
