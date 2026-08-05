@@ -781,7 +781,7 @@ class AsyncAIEngine:
 import requests
 import xml.etree.ElementTree as ET
 import concurrent.futures
-
+def search_medical_database(self, query: str):
 def fetch_pubmed(query, max_results=2):
     """Keresés az amerikai PubMed adatbázisban."""
     try:
@@ -857,6 +857,7 @@ def advanced_medical_search(query):
         return "Nem találtam releváns információt a hivatalos orvosi adatbázisokban."
         
     return f"### Orvosi Adatbázisok Eredményei:\n{combined_results}"
+    return None
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
