@@ -778,34 +778,85 @@ class AsyncAIEngine:
             
         return "\n---\n".join(formatted_results)
 
-    def search_medical_database(self, query: str) -> str:
-        """Keresés a Europe PMC (PubMed) orvosi adatbázisban."""
-        try:
-            # Csak a legrelevánsabb, szabadon olvasható (Open Access) cikkeket kérjük
-            url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={urllib.parse.quote(query)}%20OPEN_ACCESS:Y&format=json&resultType=core"
-            response = requests.get(url, timeout=12.0)
-            response.raise_for_status()
-            
-            data = response.json()
-            results = data.get("resultList", {}).get("result", [])
-            
-            if not results:
-                return "Nem találtam releváns orvosi publikációt a hivatalos adatbázisokban."
-                
-            extracted = []
-            for res in results[:3]: # A top 3 leginkább idevágó tanulmányt vesszük
-                title = res.get("title", "Nincs cím")
-                abstract = res.get("abstractText", "Nincs elérhető kivonat.")
-                # Eltávolítjuk a HTML tageket a kivonatból
-                clean_abstract = re.sub(r'<[^>]+>', '', abstract)
-                author_string = res.get("authorString", "Ismeretlen szerzők")
-                
-                extracted.append(f"Cím: {title}\nSzerzők: {author_string}\nKivonat: {clean_abstract}")
-                
-            return "\n---\n".join(extracted)
-            
-        except Exception as e:
-            return f"Hiba az orvosi adatbázis lekérdezésekor: {e}"
+import requests
+import xml.etree.ElementTree as ET
+import concurrent.futures
+
+def fetch_pubmed(query, max_results=2):
+    """Keresés az amerikai PubMed adatbázisban."""
+    try:
+        base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+        search_url = f"{base_url}esearch.fcgi?db=pubmed&term={query}&retmode=json&retmax={max_results}"
+        data = requests.get(search_url, timeout=5).json()
+        id_list = data.get("esearchresult", {}).get("idlist", [])
+        
+        if not id_list: return ""
+        
+        ids = ",".join(id_list)
+        fetch_url = f"{base_url}efetch.fcgi?db=pubmed&id={ids}&retmode=xml"
+        root = ET.fromstring(requests.get(fetch_url, timeout=5).content)
+        
+        results = []
+        for article in root.findall(".//PubmedArticle"):
+            title = article.findtext(".//ArticleTitle", default="Nincs cím")
+            abstract = article.findtext(".//AbstractText", default="Nincs absztrakt.")
+            results.append(f"**[PubMed] {title}**\n{abstract[:600]}...")
+        return "\n\n".join(results)
+    except Exception:
+        return ""
+
+def fetch_europe_pmc(query, max_results=2):
+    """Keresés az Európai Élettudományi Adatbázisban (Europe PMC)."""
+    try:
+        url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&resultType=core"
+        resp = requests.get(url, timeout=5).json()
+        results = []
+        for item in resp.get("resultList", {}).get("result", [])[:max_results]:
+            title = item.get("title", "Nincs cím")
+            abstract = item.get("abstractText", "Nincs absztrakt.").replace("<p>", "").replace("</p>", "")
+            results.append(f"**[Europe PMC] {title}**\n{abstract[:600]}...")
+        return "\n\n".join(results)
+    except Exception:
+        return ""
+
+def fetch_clinical_trials(query, max_results=2):
+    """Keresés a folyamatban lévő klinikai kísérletek között."""
+    try:
+        url = f"https://clinicaltrials.gov/api/v2/studies?query.term={query}&pageSize={max_results}"
+        resp = requests.get(url, timeout=5).json()
+        results = []
+        for study in resp.get("studies", []):
+            protocol = study.get("protocolSection", {})
+            title = protocol.get("identificationModule", {}).get("briefTitle", "Nincs cím")
+            summary = protocol.get("descriptionModule", {}).get("briefSummary", "Nincs leírás.")
+            results.append(f"**[ClinicalTrials] {title}**\n{summary[:600]}...")
+        return "\n\n".join(results)
+    except Exception:
+        return ""
+
+def advanced_medical_search(query):
+    """
+    Kombinált orvosi keresés több adatbázisban egyszerre (Multithreading).
+    """
+    results = []
+    
+    # A lekérdezések párhuzamos futtatása a gyorsaság érdekében
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_pubmed = executor.submit(fetch_pubmed, query)
+        future_epmc = executor.submit(fetch_europe_pmc, query)
+        future_trials = executor.submit(fetch_clinical_trials, query)
+        
+        results.append(future_pubmed.result())
+        results.append(future_epmc.result())
+        results.append(future_trials.result())
+    
+    # Üres találatok kiszűrése és összefűzés
+    combined_results = "\n\n---\n\n".join([r for r in results if r.strip()])
+    
+    if not combined_results:
+        return "Nem találtam releváns információt a hivatalos orvosi adatbázisokban."
+        
+    return f"### Orvosi Adatbázisok Eredményei:\n{combined_results}"
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
