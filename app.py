@@ -782,7 +782,7 @@ import requests
 import xml.etree.ElementTree as ET
 import concurrent.futures
     def search_medical_database(self, query: str):
-    def fetch_pubmed(query, max_results=2):
+        def fetch_pubmed(query, max_results=2):
     """Keresés az amerikai PubMed adatbázisban."""
     try:
         base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
@@ -805,7 +805,7 @@ import concurrent.futures
     except Exception:
         return ""
 
-def fetch_europe_pmc(query, max_results=2):
+        def fetch_europe_pmc(query, max_results=2):
     """Keresés az Európai Élettudományi Adatbázisban (Europe PMC)."""
     try:
         url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={query}&format=json&resultType=core"
@@ -819,7 +819,7 @@ def fetch_europe_pmc(query, max_results=2):
     except Exception:
         return ""
 
-def fetch_clinical_trials(query, max_results=2):
+        def fetch_clinical_trials(query, max_results=2):
     """Keresés a folyamatban lévő klinikai kísérletek között."""
     try:
         url = f"https://clinicaltrials.gov/api/v2/studies?query.term={query}&pageSize={max_results}"
@@ -834,7 +834,7 @@ def fetch_clinical_trials(query, max_results=2):
     except Exception:
         return ""
 
-def advanced_medical_search(query):
+        def advanced_medical_search(query):
     """
     Kombinált orvosi keresés több adatbázisban egyszerre (Multithreading).
     """
