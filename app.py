@@ -1526,7 +1526,6 @@ with tab_chat:
         # Módosítás (2. pont miatt): Eltároljuk a nyers inputot a web scrapernek, mielőtt a GDPR anonimizáló törli az URL-eket
         raw_user_input = user_input 
         
-        user_input = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(user_input))
         st.chat_message("user").write(user_input)
         db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
 
