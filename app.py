@@ -27,7 +27,8 @@ from groq import Groq
 import json
 import streamlit.components.v1 as components
 import requests
-
+import concurrent.futures
+from googlesearch import search as google_search
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
@@ -59,55 +60,125 @@ def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
     )
     
     return response.choices[0].message.content
-
-def hajzsalpontos_web_kereses(query, max_results=3):
+def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
     """
-    Rákeres a weben, majd letölti és kinyeri az első pár találat tényleges szövegét, 
-    hogy az AI ne csak töredékeket lásson.
+    3 különböző ingyenes keresőt (DuckDuckGo, Google, Wikipédia) kérdez le 
+    egyszerre (párhuzamosan), majd letölti és kinyeri a tartalmakat.
     """
-    ddgs = DDGS()
-    try:
-        search_results = list(ddgs.text(query, max_results=max_results))
-    except Exception as e:
-        return f"Hiba a keresés során: {e}"
+    all_results = []
 
-    if not search_results:
-        return "Nem találtam releváns eredményt a weben."
+    def search_duckduckgo():
+        results = []
+        try:
+            ddgs = DDGS()
+            for r in ddgs.text(query, max_results=max_results_per_engine):
+                results.append({
+                    'title': r.get('title'),
+                    'href': r.get('href'),
+                    'body': r.get('body'),
+                    'engine': 'DuckDuckGo'
+                })
+        except Exception as e:
+            pass
+        return results
+
+    def search_google():
+        results = []
+        try:
+            urls = list(google_search(query, num_results=max_results_per_engine, sleep_interval=1))
+            for url in urls:
+                results.append({
+                    'title': f"Google találat: {url}",
+                    'href': url,
+                    'body': 'Google keresési találat weboldala.',
+                    'engine': 'Google'
+                })
+        except Exception as e:
+            pass
+        return results
+
+    def search_wikipedia():
+        results = []
+        try:
+            wiki_url = "https://hu.wikipedia.org/w/api.php"
+            params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "format": "json",
+                "srlimit": max_results_per_engine
+            }
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            response = requests.get(wiki_url, params=params, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                for item in data.get("query", {}).get("search", []):
+                    title = item.get("title")
+                    page_id = item.get("pageid")
+                    snippet = BeautifulSoup(item.get("snippet", ""), "html.parser").get_text()
+                    url = f"https://hu.wikipedia.org/?curid={page_id}"
+                    results.append({
+                        'title': title,
+                        'href': url,
+                        'body': snippet,
+                        'engine': 'Wikipedia'
+                    })
+        except Exception as e:
+            pass
+        return results
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_ddg = executor.submit(search_duckduckgo)
+        future_google = executor.submit(search_google)
+
+        try:
+            all_results.extend(future_ddg.result(timeout=6))
+        except Exception:
+            pass
+        try:
+            all_results.extend(future_google.result(timeout=6))
+        except Exception:
+            pass
+   
+    if not all_results:
+        return "Nem találtam releváns eredményt a megadott ingyenes keresőkben."
 
     kontextus = []
+    seen_urls = set()
     
-    for idx, res in enumerate(search_results):
+    for idx, res in enumerate(all_results):
         url = res.get('href')
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        
         title = res.get('title')
         snippet = res.get('body')
+        engine = res.get('engine', 'Ismeretlen')
         
         page_text = ""
-        # Próbáljuk meg letölteni a weboldal tényleges tartalmát
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            response = requests.get(url, headers=headers, timeout=5)
+            response = requests.get(url, headers=headers, timeout=4)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
-                # Csak a bekezdéseket (p) szedjük ki, hogy elkerüljük a menüket/reklámokat
                 paragraphs = soup.find_all('p')
                 page_text = ' '.join([p.get_text() for p in paragraphs])
-                # Limitáljuk a hosszt, hogy ne lépjük túl a token limitet (kb. 2000 karakter/oldal)
-                page_text = page_text[:2000]
+                page_text = page_text[:1500]
         except Exception:
-            # Ha nem sikerül letölteni, marad a DuckDuckGo snippet
-            page_text = "Nem sikerült a teljes oldalt letölteni. Kivonat: " + snippet
+            page_text = f"Nem sikerült letölteni. Kivonat: {snippet}"
 
-        # Összeállítjuk az adott forrás blokkját
         forras_blokk = (
-            f"FORRÁS [{idx+1}]:\n"
+            f"FORRÁS [{idx+1}] ({engine}):\n"
             f"Cím: {title}\n"
             f"URL: {url}\n"
             f"Tartalom:\n{page_text if len(page_text) > 50 else snippet}\n"
             "-" * 40
         )
         kontextus.append(forras_blokk)
-        time.sleep(0.5) # Kicsit várunk, hogy ne tiltsanak le a szerverek
-        
+        if len(kontextus) >= 5:  # Maximum 5 releváns forrást adunk át az AI-nak
+            break
+
     return "\n\n".join(kontextus)
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
