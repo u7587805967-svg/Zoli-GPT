@@ -14,3 +14,4 @@ googlesearch-python
 beautifulsoup4
 RestrictedPython
 trafilatura
+sentence-transformers
