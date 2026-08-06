@@ -994,11 +994,11 @@ class AsyncAIEngine:
 
     def advanced_deep_web_search(self, query: str) -> str:
         """
-        Végtelenül pontos, párhuzamosított, ágens alapú webes kutató motor.
-        Teljes oldalakat olvas el, majd egy szigorú (temp=0.0) AI modellel kinyeri a tényeket.
+        Villámgyors, aszinkron és ágens alapú webes kutató motor.
+        Teljes oldalakat olvas el aiohttp segítségével, letisztítja a zajt, majd egy szigorú AI modellel kinyeri a tényeket.
         """
-        import concurrent.futures
-        import requests
+        import asyncio
+        import aiohttp
         from bs4 import BeautifulSoup
         from duckduckgo_search import DDGS
         import re
@@ -1014,44 +1014,55 @@ class AsyncAIEngine:
         if not results:
             return "Nem találtam releváns eredményt a weben."
 
-        # 2. Párhuzamos és mély tartalomkinyerés (Full Page Scraping)
-        def fetch_and_extract(url, title):
+        # 2. Belső aszinkron függvény a weboldalak letöltésére és tisztítására
+        async def fetch_page(session, url, title):
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
             try:
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT-Spider/2.0'}
-                # Rövid timeout, hogy ne akassza meg a rendszert egy lassú oldal
-                resp = requests.get(url, headers=headers, timeout=5.0) 
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    # Csak az érdemi szöveget (bekezdéseket, címsorokat) szedjük ki, reklámok/menük nélkül
-                    paragraphs = soup.find_all(['p', 'article', 'h1', 'h2', 'h3'])
-                    text = ' '.join([p.get_text(strip=True) for p in paragraphs])
-                    text = re.sub(r'\s+', ' ', text)
-                    if len(text) > 200:
-                        # Limitáljuk URL-enként 3500 karakterre a token limit védelmében
-                        return f"FORRÁS URL: {url}\nCÍM: {title}\nTARTALOM: {text[:3500]}"
+                async with session.get(url, headers=headers, timeout=6.0) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        soup = BeautifulSoup(html, 'html.parser')
+                        
+                        # Agresszív zajszűrés: reklámok, scriptek, menük, láblécek eltávolítása
+                        for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button']):
+                            tag.extract()
+                        
+                        # Tiszta szöveg kinyerése
+                        text = soup.get_text(separator=' ', strip=True)
+                        text = re.sub(r'\s+', ' ', text)
+                        
+                        if len(text) > 200:
+                            return f"FORRÁS URL: {url}\nCÍM: {title}\nTARTALOM: {text[:4000]}"
             except Exception:
                 pass
             return None
 
-        scraped_texts = []
-        # Párhuzamos letöltés a maximális sebességért
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(fetch_and_extract, res.get('href', res.get('url')), res.get('title')) for res in results]
-            for future in concurrent.futures.as_completed(futures):
-                res = future.result()
-                if res:
-                    scraped_texts.append(res)
+        async def fetch_all_pages(search_results):
+            async with aiohttp.ClientSession() as session:
+                tasks = [fetch_page(session, res.get('href', res.get('url')), res.get('title')) for res in search_results]
+                return await asyncio.gather(*tasks)
 
+        # 3. Aszinkron letöltések futtatása Streamlit-kompatibilis módon
+        try:
+            scraped_pages = asyncio.run(fetch_all_pages(results))
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            scraped_pages = loop.run_until_complete(fetch_all_pages(results))
+
+        scraped_texts = [page for page in scraped_pages if page is not None]
+
+        # Fallback: Ha egyik oldalt sem sikerült letölteni (pl. bot védelem miatt), marad a snippet
         if not scraped_texts:
-            # Fallback: Ha egyik oldalt sem sikerült letölteni (pl. bot védelem), marad a snippet
-            fallback_text = "\n".join([f"URL: {r.get('href', r.get('url'))}\nTARTALOM: {r.get('body')}" for r in results])
-            scraped_texts = [fallback_text]
+            scraped_texts = [f"URL: {r.get('href', r.get('url'))}\nTARTALOM: {r.get('body')}" for r in results]
 
         combined_context = "\n\n".join(scraped_texts)
 
-        # 3. Az "Infinitely Accurate" Lépés: Groq Információ Desztillálás (RAG Agent)
+        # 4. Az "Infinitely Accurate" Lépés: Groq Információ Desztillálás (RAG Agent)
         if not GROQ_API_KEY:
-            return combined_context[:8000] # API kulcs nélkül adjuk vissza a nyers szöveget
+            return combined_context[:8000]
             
         try:
             client = Groq(api_key=GROQ_API_KEY)
@@ -1069,11 +1080,11 @@ class AsyncAIEngine:
                 {"role": "user", "content": f"KÉRDÉS: {query}\n\nFORRÁSOK:\n{combined_context}"}
             ]
             
-            # Egy gyors, de okos modellel végezzük a kivonatolást 0.0 hőmérséklettel!
+            # Precíz kivonatolás (a 70b-versatile jobban teljesít komplex webes szövegeknél, mint az 8b)
             extraction_res = client.chat.completions.create(
-                model="llama-3.1-8b-instant", # Itt használhatod a 70b-t is, ha belefér a limitedbe
+                model="llama-3.3-70b-versatile",
                 messages=messages,
-                temperature=0.0, # KRITIKUS: Nulla kreativitás, maximális precizitás
+                temperature=0.0,
                 max_tokens=1024
             )
             
