@@ -2220,8 +2220,7 @@ with tab_chat:
                                 agent_status.write("✅ Webes kutatás és tényellenőrzés befejezve.")
                             else:
                                 agent_status.write("ℹ️ A mély webes böngészés nem adott értékelhető, tényalapú eredményt.")
-
-                        # --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
+# --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -2230,44 +2229,45 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
-            agent_status.update(label="🕵️ Kontextus ellenőrzése (Self-RAG)...")
+                        # --- 4. SELF-RAG: KONTEXTUS ELLENŐRZÉSE ---
+                        agent_status.update(label="🕵️ Kontextus ellenőrzése (Self-RAG)...")
+                        can_answer = True
+                        
+                        if context_addition.strip(): 
+                            try:
+                                client = Groq(api_key=GROQ_API_KEY)
+                                validation_prompt = (
+                                    f"Kérdés: {user_input}\n\n"
+                                    f"Kontextus: {context_addition}\n\n"
+                                    f"Csak 'IGEN' vagy 'NEM' szóval válaszolj: A fenti kontextus tartalmazza a választ a kérdésre? "
+                                    f"Ne magyarázd meg, csak egy szót írj."
+                                )
+                                val_res = client.chat.completions.create(
+                                    model="llama-3.1-8b-instant",
+                                    messages=[{"role": "user", "content": validation_prompt}],
+                                    temperature=0.0,
+                                    max_tokens=10
+                                )
+                                answer = val_res.choices[0].message.content.strip().upper()
+                                if "NEM" in answer:
+                                    can_answer = False
+                                    agent_status.write("⚠️ A letöltött források NEM tartalmazzák a pontos választ.")
+                            except Exception:
+                                pass  # <-- EZ A SOR HIÁNYZOTT VAGY CSÚSZOTT EL!
 
-            # 1. Alapértelmezésben feltételezzük, hogy válaszolhat
-            can_answer = True
+                        agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
-            # 2. Self-RAG Validáció
-            if context_addition.strip():  # Ha volt keresés vagy RAG kontextus
-                try:
-                    client = Groq(api_key=GROQ_API_KEY)
-                    validation_prompt = (
-                        f"Kérdés: {user_input}\n\n"
-                        f"Kontextus: {context_addition}\n\n"
-                        f"Csak 'IGEN' vagy 'NEM' szóval válaszolj: A fenti kontextus tartalmazza a választ a kérdésre? "
-                        f"Ne magyarázd meg, csak egy szót írj."
-                    )
-                    val_res = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",  # Gyors ellenőr
-                        messages=[{"role": "user", "content": validation_prompt}],
-                        temperature=0.0,
-                        max_tokens=10
-                    )
-                    answer = val_res.choices[0].message.content.strip().upper()
-                    if "NEM" in answer:
-                        can_answer = False
-                        agent_status.write("⚠️ A letöltött források NEM tartalmazzák a pontos választ. Óvatos mód bekapcsolva.")
-                except Exception as val_err:
-                    # Ha az ellenőrzés hibára fut, nem állítjuk le a rendszert
-                    pass
+                    # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
-            agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
+                    # Ha nem tud válaszolni a forrásokból, felülírjuk a rendszert
+                    if not can_answer:
+                        context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
 
-            if not can_answer:
-                context_addition = (
-                    "\n\nRENDSZER UTASÍTÁS: A rendelkezésedre bocsátott források alapján NEM lehet biztosan "
-                    "megválaszolni a kérdést. Kérlek, közöld ezt a felhasználóval, és NE találj ki tényeket!"
-                )
+                    messages = [{"role": "system", "content": system_prompt + context_addition}]
 
-            messages = [{"role": "system", "content": system_prompt + context_addition}]
+                        
+
+                    
                     
                     for msg in chat_history[-6:]:
                         if msg["type"] == "text":
