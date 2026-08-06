@@ -1917,16 +1917,16 @@ with tab_chat:
 
                         # --- Web Search eszköz végrehajtása ---
                         if use_web:
-                            agent_status.update(label="🌐 Élő webes adatok lekérése...")
-                            web_results = ai_engine.search_web_sync(user_input)
-                            if web_results:
-                                context_addition += f"\n\nFONTOS KONTEXTUS A WEBRŐL:\n{web_results}"
-                                sources = [line.replace('Forrás: ', '') for line in web_results.split('\n---\n') if line.startswith('Forrás:')]
-                                if sources:
-                                    web_sources_text = "\n\n---\n**🌐 Felhasznált források:**\n" + "\n".join([f"- {s}" for s in set(sources)])
-                                agent_status.write("✅ Friss internetes információk letöltve.")
+                            agent_status.update(label="🌐 Mély, tényalapú webes elemzés folyamatban...")
+                            
+                            # Meghívjuk az új végtelenül pontos, Agentic keresőt
+                            web_results = ai_engine.advanced_deep_web_search(user_input)
+                            
+                            if web_results and "nem tudom biztosan megmondani" not in web_results.lower() and "Hiba" not in web_results:
+                                context_addition += f"\n\n{web_results}"
+                                agent_status.write("✅ Webes kutatás és tényellenőrzés befejezve.")
                             else:
-                                agent_status.write("ℹ️ A webes böngészés nem adott értékelhető eredményt.")
+                                agent_status.write("ℹ️ A mély webes böngészés nem adott értékelhető, tényalapú eredményt.")
 
                         # --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
