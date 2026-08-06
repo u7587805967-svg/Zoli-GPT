@@ -46,7 +46,8 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         "lng": dest_lng
     })
 
-    html_code = f"""
+    # Sima sztring f-string helyett -> így a JS/CSS kapcsos zárójelei nem okoznak SyntaxError-t
+    html_code = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -59,10 +60,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
         <style>
-            body {{ margin: 0; padding: 0; font-family: Arial, sans-serif; }}
-            #map {{ height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+            body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+            #map { height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
             
-            .gps-status {{
+            .gps-status {
                 padding: 10px 14px;
                 background-color: #f0f2f6;
                 border-left: 4px solid #007bff;
@@ -71,10 +72,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 font-size: 14px;
                 font-weight: bold;
                 color: #333;
-            }}
+            }
 
             /* Pulzáló kék GPS jelölő a felhasználó pozíciójához */
-            .user-gps-dot {{
+            .user-gps-dot {
                 width: 18px;
                 height: 18px;
                 background-color: #007bff;
@@ -82,13 +83,13 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 border-radius: 50%;
                 box-shadow: 0 0 10px rgba(0, 123, 255, 0.9);
                 animation: pulse 1.6s infinite;
-            }}
+            }
 
-            @keyframes pulse {{
-                0% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }}
-                70% {{ box-shadow: 0 0 0 14px rgba(0, 123, 255, 0); }}
-                100% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }}
-            }}
+            @keyframes pulse {
+                0% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }
+                70% { box-shadow: 0 0 0 14px rgba(0, 123, 255, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }
+            }
         </style>
     </head>
     <body>
@@ -96,10 +97,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         <div id="map"></div>
 
         <script>
-            const destData = {dest_data_json};
+            const destData = __DEST_DATA_JSON__;
             const statusDiv = document.getElementById('status');
 
-            // Alapértelmezett térkép (Budapest központ fallback, ha a GPS még nem válaszolt)
+            // Alapértelmezett térkép (Budapest központ fallback)
             const map = L.map('map').setView([47.4979, 19.0402], 13);
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -129,10 +130,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                          .bindPopup("<b>📍 Az Ön jelenlegi pozíciója</b>")
                          .openPopup();
 
-                        // GPS Fókusz a felhasználóra (Zoom 15-ös szinten)
+                        // GPS Fókusz a felhasználóra
                         map.setView([userLat, userLng], 15);
 
-                        // 🏁 Ha van célállomás, útvonal kirajzolása a felhasználótól a célig
+                        // 🏁 Ha van célállomás, útvonal kirajzolása
                         if (destData.lat && destData.lng) {
                             L.Routing.control({
                                 waypoints: [
@@ -146,7 +147,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                                 show: true,
                                 collapsible: true,
                                 createMarker: function(i, wp, n) {
-                                    if (i === 0) return null; // A saját ikonunkat használjuk a startra
+                                    if (i === 0) return null;
                                     return L.marker(wp.latLng).bindPopup("<b>🏁 Célállomás: " + (destData.name || "Cél") + "</b>");
                                 }
                             }).addTo(map);
@@ -172,6 +173,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     </html>
     """
     
+    html_code = html_code.replace("__DEST_DATA_JSON__", dest_data_json)
     components.html(html_code, height=530)
 
 # --- GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
