@@ -1,63 +1,37 @@
-import streamlit as st
+
 import os
-import datetime
-import httpx
-import re
 import io
-import asyncio
+import re
 import time
-import base64
-import pytz
-import sqlite3
-import urllib.parse
 import json
+import base64
+import math
+import secrets
 import hashlib
-import secrets 
+import sqlite3
+import datetime
+import asyncio
+import urllib.parse
+import concurrent.futures
+from contextlib import contextmanager
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
-from contextlib import contextmanager
-from streamlit_mic_recorder import mic_recorder
-from duckduckgo_search import DDGS
 from PIL import Image
 from pypdf import PdfReader
 import docx
 from docx import Document
-from groq import Groq
-import json
-import streamlit.components.v1 as components
-import requests
-import concurrent.futures
-from googlesearch import search as google_search
+import httpx
 import requests
 from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+import pytz
+from groq import Groq
+import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_mic_recorder import mic_recorder
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
-import re
-import json
-import httpx
-import concurrent.futures
-import numpy as np
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
-import re
-import json
-import math
-import datetime
-import concurrent.futures
-import numpy as np
-import httpx
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
-import datetime
-import json
-import re
-import math
-import urllib.parse
-import concurrent.futures
-import httpx
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 
 try:
     from googlesearch import search as google_search
@@ -1585,20 +1559,38 @@ Kizárólag egy JSON tömböt adj vissza stringekkel! Példa: ["első keresés",
         return final_res if final_res else "Nem található orvosi adat a megadott keresésre."
     # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
+        """
+        Fejlesztett Scraper a Jina Reader API segítségével, amely rendereli a JavaScriptet (React/Angular) is,
+        és tiszta Markdown formátumot ad vissza.
+        """
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
-            response = requests.get(url, headers=headers, timeout=10.0)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Felesleges tagek (script, stílus, navigáció) eltávolítása
-            for tag in soup(["script", "style", "nav", "footer", "aside"]):
-                tag.extract()
-            text = soup.get_text(separator='\n')
-            # Üres sorok és felesleges szóközök takarítása
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            return '\n'.join(lines)[:5000] # Maximális méret limitálása a kontextus ablak védelme miatt
+            # A Jina Reader egy ingyenes, API kulcs nélküli proxy, ami LLM-barát formátummá alakítja az oldalakat
+            jina_url = f"https://r.jina.ai/{url}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT',
+                'Accept': 'text/event-stream'
+            }
+            response = requests.get(jina_url, headers=headers, timeout=15.0)
+            
+            if response.status_code == 200:
+                text = response.text
+                return text[:6000]  # Kontextus ablak védelme
+            else:
+                # Fallback az eredeti BeautifulSoup logikára, ha a Jina nem elérhető
+                return self._fallback_scrape(url)
         except Exception as e:
             return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
+
+    def _fallback_scrape(self, url: str) -> str:
+        try:
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10.0)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            for tag in soup(["script", "style", "nav", "footer", "aside"]):
+                tag.extract()
+            lines = [line.strip() for line in soup.get_text(separator='\n').splitlines() if line.strip()]
+            return '\n'.join(lines)[:6000]
+        except Exception:
+            return ""
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
@@ -2185,106 +2177,190 @@ if is_admin:
             st.info("Még nincs rögzített token használati adat.")
 
 # --- 💬 CHAT INTERFACE ---
-with tab_chat:
-    alert = db_repo.fetch_latest_alert()
-    if alert:
-        st.warning(f"📢 **Rendszerértesítés:** {alert}")
-
-    col_left, col_right = st.columns([5, 2])
-    with col_right:
-        if st.button("🗑️ Beszélgetés ürítése", use_container_width=True):
-            db_repo.purge_chat_only(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
-            st.rerun()
-
-    for idx, msg in enumerate(chat_history):
-        with st.chat_message(msg["role"]):
-            if msg.get("type") == "image": st.image(msg["content"], caption=msg.get("caption"))
-            elif msg.get("type") == "video": 
-                # Ha animált GIF alapú adatról van szó, st.image-el jelenítjük meg, hogy tökéletesen mozogjon
-                if isinstance(msg["content"], str) and msg["content"].startswith("data:image/gif"):
-                    st.image(msg["content"])
-                else:
-                    st.video(msg["content"])
-            else:
-                content = msg["content"]
-                st.write(content)
-                if msg["role"] == "assistant":
-                    if not st.session_state.mute_voice and idx == len(chat_history) - 1:
-                        audio_data = ai_engine.text_to_speech(content)
-                        if audio_data: st.audio(audio_data, format="audio/mp3")
-
-                    python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
-
-                    with st.container():
-                        cols_layout = [1.2, 1.2, 1, 1, 1, 1] if python_codes else [1.2, 1.2, 1, 1]
-                        cols = st.columns(cols_layout)
-                        with cols[0]:
-                            inject_copy_button(content, f"h_{idx}")
-                        with cols[1]:
-                            st.download_button("📄 Word-be", data=generate_docx_download(content), file_name=f"jegyzet_{idx}.docx", key=f"docx_{idx}", use_container_width=True)
-                        with cols[2]:
-                            if st.button("🇬🇧 En", key=f"trans_{idx}", use_container_width=True): 
-                                st.toast(f"🔤 **Fordítás:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'translate')}", icon="🇬🇧")
-                        with cols[3]:
-                            if st.button("📝 Össz", key=f"sum_{idx}", use_container_width=True): 
-                                st.toast(f"📝 **Összefoglaló:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'summary')}", icon="📝")
-                        if python_codes:
-                            with cols[4]:
-                                if st.button("⚡ Run", key=f"run_{idx}", use_container_width=True):
-                                    out = ai_engine.execute_python_sandbox(python_codes[0])
-                                    st.info(f"💻 **Kód kimenet:**\n```\n{out}\n```")
-                            with cols[5]:
-                                st.download_button("🐍 .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
-
-    default_input = st.session_state.voice_text if st.session_state.voice_text else ""
-    
-    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
-    if default_input and not user_input:
-        user_input = default_input
-        st.session_state.voice_text = ""
-
-    if user_input:
-        st.session_state.generating = True
-        st.session_state.mute_voice = False
-        
-        # Módosítás (2. pont miatt): Eltároljuk a nyers inputot a web scrapernek, mielőtt a GDPR anonimizáló törli az URL-eket
-        raw_user_input = user_input 
-        
-        st.chat_message("user").write(user_input)
-        db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
-
-        with st.chat_message("assistant"):
-            status_placeholder = st.empty()
-            response_placeholder = st.empty()
-            
-            try:
-                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
-                is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
-                is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
+for msg in chat_history:
+    with st.chat_message(msg["role"]):
+        content = msg["content"]
+        if msg["type"] == "text":
+            st.markdown(content)
+            if msg["role"] == "assistant":
+                audio_data = ai_engine.text_to_speech(content)
+                if audio_data and not st.session_state.get("mute_voice", False):
+                    st.audio(audio_data, format="audio/mp3")
                 
-                if is_image_request:
-                    with st.spinner("🎨 AI Képgenerálás..."):
-                        url = ai_engine.generate_image(user_input, TEXT_MODEL)
-                        if url:
-                            st.image(url, caption=f"✨ Kép: {user_input}", use_container_width=True)
-                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                elif is_video_request:
-                    with st.spinner("🎬 AI Videógenerálás..."):
-                        url = ai_engine.generate_video(user_input, TEXT_MODEL)
-                        if url:
-                            # Mivel az új függvény egy animált b64 gif-el tér vissza, az st.image-el jelenítjük meg azonnal
-                            if url.startswith("data:image/gif"):
-                                st.image(url)
-                            else:
-                                st.video(url)
-                            db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
-                else:
-                    start_time = time.perf_counter()
+                python_codes = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
+                with st.container():
+                    cols_layout = [1.2, 1.2, 1, 1, 1, 1] if python_codes else [1.2, 1.2, 1, 1]
+                    cols = st.columns(cols_layout)
+                    with cols[0]:
+                        inject_copy_button(content, f"h_{hash(content)}")
+                    with cols[1]:
+                        st.download_button("📄 Word-be", data=generate_docx_download(content), file_name=f"jegyzet.docx", key=f"docx_{hash(content)}", use_container_width=True)
+                    with cols[2]:
+                        if st.button("🇬🇧 En", key=f"trans_{hash(content)}", use_container_width=True):
+                            st.toast(f"🔤 **Fordítás:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'translate')}", icon="🇬🇧")
+                    with cols[3]:
+                        if st.button("📝 Össz", key=f"sum_{hash(content)}", use_container_width=True):
+                            st.toast(f"📝 **Összefoglaló:**\n\n{ai_engine.post_process_text(content, TEXT_MODEL, 'summary')}", icon="📝")
+                    if python_codes:
+                        with cols[4]:
+                            if st.button("⚡ Run", key=f"run_{hash(content)}", use_container_width=True):
+                                out = ai_engine.execute_python_sandbox(python_codes[0])
+                                st.info(f"💻 **Kód kimenet:**\n```\n{out}\n```")
+                        with cols[5]:
+                            st.download_button("🐍 .py", data=python_codes[0], file_name=f"script.py", key=f"py_{hash(content)}", use_container_width=True)
+        elif msg["type"] == "image":
+            st.image(content, caption=msg["caption"])
+
+default_input = st.session_state.voice_text if st.session_state.voice_text else ""
+user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.get("generating", False))
+
+if default_input and not user_input:
+    user_input = default_input
+    st.session_state.voice_text = ""
+
+if user_input:
+    st.session_state.generating = True
+    db_repo.log_message(active_chat_user, "user", user_input, "text", thread_id=st.session_state.get("current_thread", "default"))
+    
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    with st.chat_message("assistant"):
+        status_placeholder = st.empty()
+        response_placeholder = st.empty()
+        
+        try:
+            start_time = time.perf_counter()
+            system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+            
+            tz_bp = pytz.timezone("Europe/Budapest")
+            now_bp = datetime.datetime.now(tz_bp)
+            system_prompt += f"\n\n[Rendszer]: Mai dátum és pontos idő (Budapest): {now_bp.strftime('%Y-%m-%d %H:%M:%S (%A)')}"
+
+            messages = [{"role": "system", "content": system_prompt}]
+            for msg in chat_history[-6:]:
+                if msg["type"] == "text":
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": user_input})
+
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "description": "Keresés a weben tényekért, hírekért és aktuális információkért.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string", "description": "A Google/DuckDuckGo keresőkifejezés."}},
+                            "required": ["query"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "rag_memory_search",
+                        "description": "Keresés a felhasználó által korábban feltöltött belső dokumentumokban és személyes jegyzetekben.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string", "description": "A keresett kifejezés a belső fájlokban."}},
+                            "required": ["query"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "medical_search",
+                        "description": "Tudományos orvosi cikkek és betegségleírások keresése a PubMed és Europe PMC adatbázisokban.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string", "description": "Az angol nyelvű orvosi keresőkifejezés."}},
+                            "required": ["query"]
+                        }
+                    }
+                }
+            ]
+
+            client = Groq(api_key=GROQ_API_KEY)
+            
+            max_iterations = 3
+            iteration = 0
+            final_response_content = ""
+            
+            with st.status("🧠 Zoli GPT gondolkodik és cselekszik...", expanded=True) as agent_status:
+                while iteration < max_iterations:
+                    iteration += 1
                     
-                    system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
-                    context_addition = ""
-                    web_sources_text = ""
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        temperature=0.1
+                    )
                     
+                    response_msg = response.choices[0].message
+                    messages.append(response_msg)
+                    
+                    if not response_msg.tool_calls:
+                        final_response_content = response_msg.content
+                        agent_status.update(label="✨ Válasz elkészült.", state="complete", expanded=False)
+                        break
+                        
+                    for tool_call in response_msg.tool_calls:
+                        fn_name = tool_call.function.name
+                        fn_args = json.loads(tool_call.function.arguments)
+                        query = fn_args.get("query", "")
+                        
+                        agent_status.write(f"🛠️ Eszköz használata: `{fn_name}` -> `{query}`")
+                        
+                        tool_result = ""
+                        if fn_name == "web_search":
+                            tool_result = hajzsalpontos_web_kereses(client, query)
+                        elif fn_name == "rag_memory_search":
+                            rag_data = ai_engine.query_vector_db_with_metadata(query, active_chat_user, TEXT_MODEL)
+                            tool_result = "\n".join([f"[{r['source']}]: {r['text']}" for r in rag_data]) if rag_data else "Nincs egyezés a belső fájlokban."
+                        elif fn_name == "medical_search":
+                            tool_result = ai_engine.search_medical_database(query)
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": fn_name,
+                            "content": tool_result
+                        })
+                        
+                if not final_response_content:
+                    final_response = client.chat.completions.create(
+                        model=TEXT_MODEL,
+                        messages=messages,
+                        temperature=0.4
+                    )
+                    final_response_content = final_response.choices[0].message.content
+                    agent_status.update(label="✨ Válasz elkészült.", state="complete", expanded=False)
+
+            display_response = final_response_content
+            
+            match_route = re.search(r'\[ROUTE:\s*(.*?)\s*\|\s*(.*?)\s*\]', display_response)
+            if match_route:
+                orig, dest = match_route.groups()
+                display_response = display_response.replace(match_route.group(0), "")
+                response_placeholder.markdown(display_response)
+                render_gps_navigation(dest)
+            else:
+                response_placeholder.markdown(display_response)
+            
+            end_time = time.perf_counter()
+            db_repo.log_latency(end_time - start_time)
+            db_repo.log_message(active_chat_user, "assistant", display_response, "text", thread_id=st.session_state.get("current_thread", "default"))
+        
+        except Exception as main_error:
+            st.error(f"Hiba történt a generálás közben: {main_error}")
+        
+        finally:
+            st.session_state.generating = False
+            st.rerun()                    
                     # --- 🤖 INTELLIGENS ÁGENS (AGENTIC WORKFLOW) TERVEZÉSI FÁZIS ---
                     with st.status("🧠 Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
