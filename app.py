@@ -58,6 +58,13 @@ import concurrent.futures
 import httpx
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+@st.cache_resource
+def get_embedding_model():
+    # Ingyenes, gyors, és érti a magyar nyelvet
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 try:
     from googlesearch import search as google_search
@@ -1136,49 +1143,44 @@ class AsyncAIEngine:
     def ingest_document(self, text: str, doc_name: str, username: str, text_model: str, file_size_str: str):
         if not text: return
         chunks = self.smart_chunk_text(text, self.config.CHUNK_SIZE, self.config.CHUNK_OVERLAP)
+        embedder = get_embedding_model()
         
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM document_vectors WHERE username=? AND doc_name=?", (username, doc_name))
-            p_bar = st.progress(0, text="📚 Személyes emlékek indexelése...")
+            p_bar = st.progress(0, text="📚 Személyes emlékek okos-indexelése...")
+            
             for idx, chunk in enumerate(chunks):
-                freq_map = self.compute_simple_tfidf_vector(chunk)
+                # Sűrű vektor (dense embedding) generálása
+                vector = embedder.encode(chunk).tolist()
                 cursor.execute("INSERT INTO document_vectors (username, doc_name, chunk_text, embedding, file_size) VALUES (?, ?, ?, ?, ?)",
-                               (username, doc_name, chunk, json.dumps(freq_map).encode('utf-8'), file_size_str))
+                               (username, doc_name, chunk, json.dumps(vector).encode('utf-8'), file_size_str))
                 p_bar.progress((idx + 1) / len(chunks))
             conn.commit()
             p_bar.empty()
 
     def query_vector_db_with_metadata(self, query_text: str, username: str, text_model: str) -> list:
         scored = []
-        rows = []
+        embedder = get_embedding_model()
+        query_vector = embedder.encode(query_text)
         
         with self.db._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT doc_name, chunk_text, embedding FROM document_vectors WHERE username=?", (username,))
             rows = cursor.fetchall()
                 
-        q_map = self.compute_simple_tfidf_vector(query_text)
-        
-        if q_map and rows:
-            q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values()))
-            for doc_name, chunk_text, emb_blob in rows:
-                try:
-                    freq_map = json.loads(emb_blob.decode('utf-8'))
-                except Exception:
-                    freq_map = {}
+        for doc_name, chunk_text, emb_blob in rows:
+            try:
+                doc_vector = np.array(json.loads(emb_blob.decode('utf-8')))
+                # Koszinusz hasonlóság számítása vektorok között
+                cosine_score = np.dot(query_vector, doc_vector) / (np.linalg.norm(query_vector) * np.linalg.norm(doc_vector))
                 
-                if not freq_map: continue
-                
-                intersection = sum(q_map[k] * freq_map.get(k, 0) for k in q_map if k in freq_map)
-                doc_magnitude = np.sqrt(sum(v ** 2 for v in freq_map.values()))
-                
-                if intersection > 0 and q_magnitude > 0 and doc_magnitude > 0:
-                    cosine_score = intersection / (q_magnitude * doc_magnitude)
-                    if cosine_score >= self.config.RAG_SIMI_THRESHOLD:
-                        scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
+                if cosine_score >= 0.3: # Kicsit magasabb küszöb, mert a vektorok pontosabbak
+                    scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
+            except Exception:
+                continue
                         
-        return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
+        return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
 
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
@@ -1322,195 +1324,61 @@ class AsyncAIEngine:
         return "\n---\n".join(formatted_results)
 
     def advanced_deep_web_search(self, query: str) -> str:
-        """
-        Maximális pontosságú, hibrid aszinkron webes kutató motor.
-        1. Query Fan-out (Intelligens kulcsszó bővítés)
-        2. DDG + Google hibrid párhuzamos lekérdezés
-        3. Trafilatura / BeautifulSoup aszinkron tartalomkinyerés
-        4. TF-IDF Koszinusz Hasonlóság alapú újrarangsorolás (Zajszűrés)
-        5. Zéró-hőmérsékletű ténykinyerés szigorú hivatkozásokkal
-        """
-        import asyncio
-        import aiohttp
-        from bs4 import BeautifulSoup
-        from duckduckgo_search import DDGS
-        from googlesearch import search as google_search
-        import re
-        from groq import Groq
-        import concurrent.futures
-        import nest_asyncio
-        import json
+        """Tavily natív AI kereső + Cohere Rerank"""
+        TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY", "")
+        COHERE_API_KEY = st.secrets.get("COHERE_API_KEY", "")
         
-        # Streamlit event loop kompatibilitás javítása
-        nest_asyncio.apply()
+        if not TAVILY_API_KEY:
+            return "Hiba: Hiányzik a Tavily API kulcs a secrets-ből."
+            
+        import requests
         
-        # Trafilatura ellenőrzése a precízebb szövegkinyeréshez
+        # 1. Keresés a Tavily-vel
+        tavily_url = "https://api.tavily.com/search"
+        payload = {
+            "api_key": TAVILY_API_KEY,
+            "query": query,
+            "search_depth": "advanced",
+            "include_answer": False,
+            "max_results": 8
+        }
+        
         try:
-            import trafilatura
-            HAS_TRAF = True
-        except ImportError:
-            HAS_TRAF = False
-
-        # 1. Keresőkifejezések optimalizálása (Query Fan-out)
-        search_queries = [query]
-        if GROQ_API_KEY:
-            try:
-                client = Groq(api_key=GROQ_API_KEY)
-                prompt = f"""Készíts pontosan 2 db rövid, célzott Google keresőkifejezést az alábbi kérdésből, hogy a legfrissebb tényeket találjuk meg.
-Kérdés: '{query}'
-Kizárólag egy JSON tömböt adj vissza stringekkel! Példa: ["első keresés", "második keresés"]"""
-                res = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                    max_tokens=100
-                )
-                match = re.search(r'\[.*\]', res.choices[0].message.content, re.DOTALL)
-                if match:
-                    queries = json.loads(match.group(0))
-                    if isinstance(queries, list):
-                        search_queries.extend(queries[:2])
-            except Exception:
-                pass
-
-        urls_to_scrape = set()
-
-        # 2. Hibrid Keresés: Google és DuckDuckGo párhuzamos lekérdezése
-        def fetch_urls(sq):
-            urls = []
-            try:
-                with DDGS() as ddgs:
-                    urls.extend([r.get('href', r.get('url')) for r in ddgs.text(sq, max_results=3, safesearch="moderate")])
-            except Exception: pass
-            
-            try:
-                urls.extend(list(google_search(sq, num_results=3, sleep_interval=1)))
-            except Exception: pass
-            return urls
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            results = executor.map(fetch_urls, search_queries)
-            for url_list in results:
-                for u in url_list:
-                    if u: urls_to_scrape.add(u)
-
-        if not urls_to_scrape:
-            return "Nem találtam releváns eredményt a keresőmotorokban."
-
-        # Maximum 8 legjobb URL letöltése a sebesség miatt
-        urls_to_scrape = list(urls_to_scrape)[:8]
-
-        # 3. Aszinkron és zajmentes weboldal letöltés
-        async def fetch_page(session, url):
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-            try:
-                async with session.get(url, headers=headers, timeout=8.0, ssl=False) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        
-                        clean_text = ""
-                        # Iparági szintű szövegkinyerés Trafilaturával
-                        if HAS_TRAF:
-                            extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_precision=True)
-                            if extracted and len(extracted.strip()) > 150:
-                                clean_text = extracted
-                        
-                        # Fallback BeautifulSoup-ra
-                        if not clean_text:
-                            soup = BeautifulSoup(html, 'html.parser')
-                            for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button', 'form']):
-                                tag.extract()
-                            
-                            content_area = soup.find('article') or soup.find('main') or soup.find('body') or soup
-                            valid_tags = content_area.find_all(['p', 'h1', 'h2', 'h3', 'li'])
-                            text_chunks = [tag.get_text(strip=True) for tag in valid_tags if len(tag.get_text(strip=True)) > 30]
-                            clean_text = ' '.join(text_chunks)
-                            
-                        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                        if len(clean_text) > 150:
-                            return url, clean_text
-            except Exception:
-                pass
-            return None, None
-
-        async def fetch_all_pages(urls):
-            async with aiohttp.ClientSession() as session:
-                tasks = [fetch_page(session, url) for url in urls]
-                return await asyncio.gather(*tasks)
-
-        # Aszinkron letöltések futtatása
-        try:
-            loop = asyncio.get_event_loop()
-            scraped_pages = loop.run_until_complete(fetch_all_pages(urls_to_scrape))
-        except Exception:
-            scraped_pages = asyncio.run(fetch_all_pages(urls_to_scrape))
-
-        # 4. TF-IDF Szemantikus Újrarangsorolás (Zajszűrés)
-        # Az AI számára csak a kérdés szempontjából matematikailag legrelevánsabb bekezdéseket adjuk át
-        q_map = self.compute_simple_tfidf_vector(query)
-        q_magnitude = sum(v ** 2 for v in q_map.values()) ** 0.5 if q_map else 0
-
-        scored_chunks = []
-        for url, text in scraped_pages:
-            if not text: continue
-            
-            # Darabolás ~1200 karakteres ablakokkal, 300 karakteres átfedéssel
-            chunks = []
-            for i in range(0, len(text), 900):
-                chunks.append(text[i:i+1200])
-                
-            for chunk in chunks:
-                score = 0.0
-                if q_magnitude > 0:
-                    c_map = self.compute_simple_tfidf_vector(chunk)
-                    c_magnitude = sum(v ** 2 for v in c_map.values()) ** 0.5
-                    if c_magnitude > 0:
-                        intersection = sum(q_map[k] * c_map.get(k, 0) for k in q_map if k in c_map)
-                        score = intersection / (q_magnitude * c_magnitude)
-                scored_chunks.append((score, url, chunk))
-
-        # Rendezzük relevancia szerint, és csak a top 8 legfontosabb részt tartjuk meg
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        top_chunks = scored_chunks[:8]
-
-        if not top_chunks:
-            return "Sajnos a megtalált és letöltött weblapokból nem sikerült értékelhető információt kinyerni a kérdés megválaszolásához."
-
-        combined_context = "\n\n".join([f"FORRÁS URL [{url}]:\n{chunk}" for score, url, chunk in top_chunks])
-
-        # 5. Maximális precizitású RAG Desztilláció (0.0 Temperature)
-        if not GROQ_API_KEY:
-            return combined_context[:8000]
-            
-        try:
-            client = Groq(api_key=GROQ_API_KEY)
-            strict_system_prompt = (
-                "Te egy végtelenül szigorú és precíz, tényalapú adatkivonó kutató ágens vagy. "
-                "KIZÁRÓLAG a megadott webes források ('FORRÁSOK') alapján válaszolj a kérdésre!\n\n"
-                "SZABÁLYOK:\n"
-                "1. Ha a források tartalmazzák a választ, írj egy átfogó, logikus és jól olvasható összefoglalót.\n"
-                "2. MINDEN EGYES állításod vagy logikai blokkod végén KÖTELEZŐ megadni a pontos FORRÁS URL-jét kattintható Markdown formátumban (pl: [Forrás](https://...)).\n"
-                "3. Ha a források NEM tartalmazzák a választ a kérdésre, KÖTELEZŐ szó szerint ezt mondanod: 'A letöltött webes adatok alapján nem tudom biztosan megmondani a választ.'\n"
-                "4. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod bármilyen információt, ami nincs a megadott forrásszövegben."
-            )
-            
-            messages = [
-                {"role": "system", "content": strict_system_prompt},
-                {"role": "user", "content": f"KÉRDÉS: {query}\n\nFORRÁSOK:\n{combined_context}"}
-            ]
-            
-            # A 0.0-ás hőmérséklet garantálja, hogy az AI ne találjon ki semmit
-            extraction_res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.0, 
-                max_tokens=1500
-            )
-            
-            return f"**🌐 Mély Webes Kutatás Eredménye:**\n\n{extraction_res.choices[0].message.content}"
-            
+            resp = requests.post(tavily_url, json=payload, timeout=15.0).json()
+            results = resp.get("results", [])
         except Exception as e:
-            return f"Hiba az AI ténykinyerés során: {e}\n\nNyers adatok:\n{combined_context[:2000]}"
+            return f"Hiba a Tavily API elérésekor: {e}"
+            
+        if not results:
+            return "A weben nem találtam releváns friss információt."
+            
+        raw_documents = [f"FORRÁS [{r['url']}]:\n{r['content']}" for r in results]
+        
+        # 2. Újrarangsorolás (Reranking) a Cohere-rel
+        if COHERE_API_KEY:
+            cohere_url = "https://api.cohere.ai/v1/rerank"
+            headers = {
+                "Authorization": f"Bearer {COHERE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            cohere_payload = {
+                "model": "rerank-multilingual-v3.0",
+                "query": query,
+                "documents": raw_documents,
+                "top_n": 3
+            }
+            try:
+                co_resp = requests.post(cohere_url, json=cohere_payload, headers=headers, timeout=10.0)
+                if co_resp.status_code == 200:
+                    reranked = co_resp.json().get("results", [])
+                    # Csak a top 3 leginkább egyező dokumentumot tartjuk meg
+                    raw_documents = [raw_documents[r["index"]] for r in reranked]
+            except Exception:
+                raw_documents = raw_documents[:3] # Fallback, ha a Cohere nem válaszol
+        else:
+            raw_documents = raw_documents[:3]
+            
+        return "\n\n".join(raw_documents)
 
     def search_medical_database(self, query: str) -> str:
         import requests
@@ -1955,7 +1823,7 @@ with st.sidebar:
         }    
         st.subheader("🤖 AI Modellek")
         models = ai_engine.get_available_models()
-        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=1 if models else None)
+        TEXT_MODEL = st.selectbox("Fő LLM Modell", models, index=0 if models else None)
     
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
@@ -2362,9 +2230,39 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
-                        agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
+                        agent_status.update(label="🕵️ Kontextus ellenőrzése (Self-RAG)...")
 
-                    messages = [{"role": "system", "content": system_prompt + context_addition}]
+# Self-RAG Validáció
+can_answer = True
+if context_addition.strip(): # Ha volt keresés vagy RAG
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        validation_prompt = (
+            f"Kérdés: {user_input}\n\n"
+            f"Kontextus: {context_addition}\n\n"
+            f"Csak 'IGEN' vagy 'NEM' szóval válaszolj: A fenti kontextus tartalmazza a választ a kérdésre? "
+            f"Ne magyarázd meg, csak egy szót írj."
+        )
+        val_res = client.chat.completions.create(
+            model="llama-3.1-8b-instant", # Gyors és olcsó ellenőr
+            messages=[{"role": "user", "content": validation_prompt}],
+            temperature=0.0,
+            max_tokens=10
+        )
+        answer = val_res.choices[0].message.content.strip().upper()
+        if "NEM" in answer:
+            can_answer = False
+            agent_status.write("⚠️ A letöltött források NEM tartalmazzák a pontos választ. Óvatos mód bekapcsolva.")
+    except Exception:
+        pass
+
+agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
+
+if not can_answer:
+    # Ha a Self-RAG szerint nincs meg a válasz a forrásban, felülírjuk a rendszert, hogy vallja be az őszintét.
+    context_addition = "\n\nRENDSZER UTASÍTÁS: A rendelkezésedre bocsátott források alapján NEM lehet biztosan megválaszolni a kérdést. Kérlek, közöld ezt a felhasználóval, és NE találj ki tényeket!"
+
+messages = [{"role": "system", "content": system_prompt + context_addition}]
                     
                     for msg in chat_history[-6:]:
                         if msg["type"] == "text":

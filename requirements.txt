@@ -19,3 +19,4 @@ starlette<0.40.0
 googlesearch-python
 nest_asyncio
 trafilatura
+sentence-transformers numpy requests
