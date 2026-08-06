@@ -33,6 +33,178 @@ import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
+import re
+import json
+import httpx
+import concurrent.futures
+import numpy as np
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+
+try:
+    import trafilatura
+    HAS_TRAFILATURA = True
+except ImportError:
+    HAS_TRAFILATURA = False
+
+
+def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list[str]:
+    """
+    Query Fan-Out: A felhasználó természetes nyelvi kérdését 2-3 célzott,
+    keresőmotor-barát kulcsszó-kombinációra bontja.
+    """
+    try:
+        prompt = f"""
+        A feladatod, hogy a felhasználó kérdéséből 2-3 rövid, pontos, keresőmotoroknak ideális keresőkifejezést (search query) hozz létre.
+        Csak egy érvényes JSON tömböt adj vissza, semmi más kísérő szöveget!
+        Példa input: "Mikor volt a legutóbbi F1 futam és ki nyerte?"
+        Példa output: ["F1 legutóbbi futam eredménye", "Formula 1 legutóbbi verseny győztese"]
+        
+        Kérdés: {felhasznalo_kerdese}
+        """
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=150
+        )
+        content = response.choices[0].message.content.strip()
+        match = re.search(r'\[.*\]', content, re.DOTALL)
+        if match:
+            queries = json.loads(match.group(0))
+            if isinstance(queries, list) and len(queries) > 0:
+                return queries[:3]
+    except Exception:
+        pass
+    return [felhasznalo_kerdese]
+
+
+def letolt_es_tisztit_html(url: str, timeout: int = 4) -> str:
+    """
+    Lementi a weboldalt és tisztított, reklámmentes törzsszöveget nyer ki belőle.
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as http_client:
+            resp = http_client.get(url)
+            if resp.status_code != 200:
+                return ""
+            
+            html_content = resp.text
+
+            # 1. Trafilatura használata (a legprecízebb cikk-kinyerő)
+            if HAS_TRAFILATURA:
+                extracted = trafilatura.extract(html_content, include_comments=False, include_tables=True)
+                if extracted and len(extracted.strip()) > 100:
+                    return extracted.strip()
+
+            # 2. BeautifulSoup fallback (minden lényeges elem kinyerése)
+            soup = BeautifulSoup(html_content, 'html.parser')
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]):
+                tag.extract()
+            
+            main_content = soup.find('main') or soup.find('article') or soup.find('body')
+            if main_content:
+                text_blocks = [elem.get_text(strip=True) for elem in main_content.find_all(['p', 'h1', 'h2', 'h3', 'li', 'td'])]
+                full_text = " ".join([t for t in text_blocks if len(t) > 15])
+                return full_text
+    except Exception:
+        pass
+    return ""
+
+
+def szamits_relevancia_pontot(query: str, text: str) -> float:
+    """
+    Kiszámítja a letöltött szövegrészlet relevanciáját a keresési kifejezéshez képest.
+    """
+    q_words = set(re.findall(r'\w+', query.lower()))
+    t_words = re.findall(r'\w+', text.lower())
+    if not q_words or not t_words:
+        return 0.0
+    
+    matches = sum(1 for w in t_words if w in q_words)
+    return matches / (len(q_words) + np.log(len(t_words) + 1))
+
+
+def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 4) -> str:
+    """
+    Ultra-pontos AI Webes Kereső Motor:
+    1. Query Fan-Out (keresési szándék több optimális keresőkifejezésre bontása)
+    2. DuckDuckGo keresés futtatása párhuzamosan
+    3. Trafilatura / BeautifulSoup alapú intelligens tartalomkinyerés
+    4. Relevancia szerinti újrarangsorolás (Reranking)
+    """
+    # 1. Keresési kifejezések optimalizálása LLM-mel
+    search_queries = optimalizal_keresesi_kifejezeseket(client, query)
+    
+    raw_results = []
+    seen_urls = set()
+    
+    # 2. DuckDuckGo keresés
+    ddgs = DDGS()
+    for sq in search_queries:
+        try:
+            results = ddgs.text(sq, max_results=3)
+            if results:
+                for r in results:
+                    url = r.get('href')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        raw_results.append({
+                            'title': r.get('title', ''),
+                            'url': url,
+                            'snippet': r.get('body', ''),
+                        })
+        except Exception:
+            continue
+
+    if not raw_results:
+        return "Nem találtam releváns friss információt a weben a megadott kérdésre."
+
+    # 3. Párhuzamos weboldal-letöltés és tartalomkinyerés
+    fetched_data = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_item = {
+            executor.submit(letolt_es_tisztit_html, item['url']): item 
+            for item in raw_results[:7]
+        }
+        for future in concurrent.futures.as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                page_text = future.result()
+            except Exception:
+                page_text = ""
+            
+            content = page_text if len(page_text) > 100 else item['snippet']
+            rel_score = szamits_relevancia_pontot(query, content)
+            
+            fetched_data.append({
+                'title': item['title'],
+                'url': item['url'],
+                'content': content[:2500], # Max 2500 karakter forrásonként
+                'score': rel_score
+            })
+
+    # 4. Újrarangsorolás (Reranking) relevancia alapján
+    fetched_data.sort(key=lambda x: x['score'], reverse=True)
+    top_sources = fetched_data[:max_sources]
+
+    # 5. Strukturált kontextus építése az AI számára
+    kontextus_blokkok = []
+    for idx, src in enumerate(top_sources, 1):
+        blokk = (
+            f"FORRÁS [{idx}]:\n"
+            f"Cím: {src['title']}\n"
+            f"URL: {src['url']}\n"
+            f"Tartalom:\n{src['content']}\n"
+            f"----------------------------------------"
+        )
+        kontextus_blokkok.append(blokk)
+
+    return "\n\n".join(kontextus_blokkok)
+
 
 def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
     strict_system_prompt = f"""
@@ -50,107 +222,17 @@ def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
     """
     
     response = client.chat.completions.create(
-        model="llama3-70b-8192", # Vagy az általad preferált pontos Groq modell
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": strict_system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.0, # KULCSFONTOSSÁGÚ: A hőmérséklet 0.0 legyen, hogy ne legyen kreatív, csak precíz!
+        temperature=0.0,
         max_tokens=1024
     )
     
     return response.choices[0].message.content
-def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
-    """
-    2 különböző ingyenes keresőt (DuckDuckGo, Google) kérdez le 
-    egyszerre (párhuzamosan), majd letölti és kinyeri a tartalmakat.
-    """
-    all_results = []
 
-    def search_duckduckgo():
-        results = []
-        try:
-            ddgs = DDGS()
-            for r in ddgs.text(query, max_results=max_results_per_engine):
-                results.append({
-                    'title': r.get('title'),
-                    'href': r.get('href'),
-                    'body': r.get('body'),
-                    'engine': 'DuckDuckGo'
-                })
-        except Exception:
-            pass
-        return results
-
-    def search_google():
-        results = []
-        try:
-            urls = list(google_search(query, num_results=max_results_per_engine, sleep_interval=1))
-            for url in urls:
-                results.append({
-                    'title': f"Google találat: {url}",
-                    'href': url,
-                    'body': 'Google keresési találat weboldala.',
-                    'engine': 'Google'
-                })
-        except Exception:
-            pass
-        return results
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        future_ddg = executor.submit(search_duckduckgo)
-        future_google = executor.submit(search_google)
-
-        try:
-            all_results.extend(future_ddg.result(timeout=6))
-        except Exception:
-            pass
-        try:
-            all_results.extend(future_google.result(timeout=6))
-        except Exception:
-            pass
-
-    if not all_results:
-        return "Nem találtam releváns eredményt a megadott ingyenes keresőkben."
-
-    kontextus = []
-    seen_urls = set()
-    
-    # Letöltjük és kinyerjük a találatok tényleges webes tartalmát
-    for idx, res in enumerate(all_results):
-        url = res.get('href')
-        if not url or url in seen_urls:
-            continue
-        seen_urls.add(url)
-        
-        title = res.get('title')
-        snippet = res.get('body')
-        engine = res.get('engine', 'Ismeretlen')
-        
-        page_text = ""
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            response = requests.get(url, headers=headers, timeout=4)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                paragraphs = soup.find_all('p')
-                page_text = ' '.join([p.get_text() for p in paragraphs])
-                page_text = page_text[:1500]
-        except Exception:
-            page_text = f"Nem sikerült letölteni. Kivonat: {snippet}"
-
-        forras_blokk = (
-            f"FORRÁS [{idx+1}] ({engine}):\n"
-            f"Cím: {title}\n"
-            f"URL: {url}\n"
-            f"Tartalom:\n{page_text if len(page_text) > 50 else snippet}\n"
-            "-" * 40
-        )
-        kontextus.append(forras_blokk)
-        if len(kontextus) >= 4:  # Maximum 4 forrás átadása az AI-nak
-            break
-
-    return "\n\n".join(kontextus)
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     """
     Dinamikus GPS térkép beágyazása:

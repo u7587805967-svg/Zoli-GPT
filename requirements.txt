@@ -18,3 +18,4 @@ requests>=2.31.0
 starlette<0.40.0
 googlesearch-python
 nest_asyncio
+trafilatura
