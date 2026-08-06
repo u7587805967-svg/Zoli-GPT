@@ -33,6 +33,33 @@ from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 
+def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
+    strict_system_prompt = f"""
+    Te egy szigorú, tényalapú kutató asszisztens vagy. 
+    KIZÁRÓLAG a megadott 'Keresési Eredmények' alapján válaszolhatsz.
+    
+    SZABÁLYOK:
+    1. Ha a válasz megtalálható a Keresési Eredményekben, fogalmazd meg pontosan, és MINDIG hivatkozz a forrás számára (pl. [1], [2]).
+    2. Ha a megadott szövegek nem tartalmazzák a választ a felhasználó kérdésére, KÖTELEZŐ ezt mondanod: "A jelenlegi webes találatok alapján nem tudom biztosan megmondani a választ."
+    3. TILOS kitalálnod információkat (hallucináció).
+    4. TILOS a saját, beépített tudásodra támaszkodnod. Csak az itt kapott szövegeket használd.
+    
+    KERESÉSI EREDMÉNYEK:
+    {keresesi_eredmenyek}
+    """
+    
+    response = client.chat.completions.create(
+        model="llama3-70b-8192", # Vagy az általad preferált pontos Groq modell
+        messages=[
+            {"role": "system", "content": strict_system_prompt},
+            {"role": "user", "content": felhasznalo_kerdese}
+        ],
+        temperature=0.0, # KULCSFONTOSSÁGÚ: A hőmérséklet 0.0 legyen, hogy ne legyen kreatív, csak precíz!
+        max_tokens=1024
+    )
+    
+    return response.choices[0].message.content
+
 def hajzsalpontos_web_kereses(query, max_results=3):
     """
     Rákeres a weben, majd letölti és kinyeri az első pár találat tényleges szövegét, 
