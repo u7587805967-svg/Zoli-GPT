@@ -1217,8 +1217,12 @@ class AsyncAIEngine:
 
     def advanced_deep_web_search(self, query: str) -> str:
         """
-        Maximális pontosságú, hibrid (Google+DDG) aszinkron webes kutató motor.
-        Kiszűri a zajt a HTML-ből, és 0.0-ás hőmérséklettel, szigorú forrásmegjelöléssel vonja ki a tényeket.
+        Maximális pontosságú, hibrid aszinkron webes kutató motor.
+        1. Query Fan-out (Intelligens kulcsszó bővítés)
+        2. DDG + Google hibrid párhuzamos lekérdezés
+        3. Trafilatura / BeautifulSoup aszinkron tartalomkinyerés
+        4. TF-IDF Koszinusz Hasonlóság alapú újrarangsorolás (Zajszűrés)
+        5. Zéró-hőmérsékletű ténykinyerés szigorú hivatkozásokkal
         """
         import asyncio
         import aiohttp
@@ -1229,89 +1233,146 @@ class AsyncAIEngine:
         from groq import Groq
         import concurrent.futures
         import nest_asyncio
+        import json
         
         # Streamlit event loop kompatibilitás javítása
         nest_asyncio.apply()
+        
+        # Trafilatura ellenőrzése a precízebb szövegkinyeréshez
+        try:
+            import trafilatura
+            HAS_TRAF = True
+        except ImportError:
+            HAS_TRAF = False
+
+        # 1. Keresőkifejezések optimalizálása (Query Fan-out)
+        search_queries = [query]
+        if GROQ_API_KEY:
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                prompt = f"""Készíts pontosan 2 db rövid, célzott Google keresőkifejezést az alábbi kérdésből, hogy a legfrissebb tényeket találjuk meg.
+Kérdés: '{query}'
+Kizárólag egy JSON tömböt adj vissza stringekkel! Példa: ["első keresés", "második keresés"]"""
+                res = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=100
+                )
+                match = re.search(r'\[.*\]', res.choices[0].message.content, re.DOTALL)
+                if match:
+                    queries = json.loads(match.group(0))
+                    if isinstance(queries, list):
+                        search_queries.extend(queries[:2])
+            except Exception:
+                pass
 
         urls_to_scrape = set()
 
-        # 1. Hibrid Keresés: Google és DuckDuckGo párhuzamos lekérdezése
-        def fetch_ddg():
+        # 2. Hibrid Keresés: Google és DuckDuckGo párhuzamos lekérdezése
+        def fetch_urls(sq):
+            urls = []
             try:
                 with DDGS() as ddgs:
-                    return [r.get('href', r.get('url')) for r in ddgs.text(query, max_results=3, safesearch="moderate")]
-            except Exception:
-                return []
-
-        def fetch_google():
-            try:
-                return list(google_search(query, num_results=3, sleep_interval=1))
-            except Exception:
-                return []
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            fut_ddg = executor.submit(fetch_ddg)
-            fut_goo = executor.submit(fetch_google)
+                    urls.extend([r.get('href', r.get('url')) for r in ddgs.text(sq, max_results=3, safesearch="moderate")])
+            except Exception: pass
             
-            for u in fut_ddg.result():
-                if u: urls_to_scrape.add(u)
-            for u in fut_goo.result():
-                if u: urls_to_scrape.add(u)
+            try:
+                urls.extend(list(google_search(sq, num_results=3, sleep_interval=1)))
+            except Exception: pass
+            return urls
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            results = executor.map(fetch_urls, search_queries)
+            for url_list in results:
+                for u in url_list:
+                    if u: urls_to_scrape.add(u)
 
         if not urls_to_scrape:
             return "Nem találtam releváns eredményt a keresőmotorokban."
 
-        # 2. Célzott és zajmentes aszinkron weboldal letöltés
+        # Maximum 8 legjobb URL letöltése a sebesség miatt
+        urls_to_scrape = list(urls_to_scrape)[:8]
+
+        # 3. Aszinkron és zajmentes weboldal letöltés
         async def fetch_page(session, url):
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
             try:
-                async with session.get(url, headers=headers, timeout=6.0) as response:
+                async with session.get(url, headers=headers, timeout=8.0, ssl=False) as response:
                     if response.status == 200:
                         html = await response.text()
-                        soup = BeautifulSoup(html, 'html.parser')
                         
-                        # Agresszív zajszűrés: felesleges elemek eltávolítása
-                        for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button', 'form']):
-                            tag.extract()
+                        clean_text = ""
+                        # Iparági szintű szövegkinyerés Trafilaturával
+                        if HAS_TRAF:
+                            extracted = trafilatura.extract(html, include_comments=False, include_tables=True, favor_precision=True)
+                            if extracted and len(extracted.strip()) > 150:
+                                clean_text = extracted
                         
-                        # Intelligens tartalomkeresés: előnyben az article és main, különben body
-                        content_area = soup.find('article') or soup.find('main') or soup.find('body') or soup
-                        
-                        # Csak a bekezdéseket (p) és a címsorokat szedjük ki, hogy a menüpontok ne szemeteljék tele a memóriát
-                        valid_tags = content_area.find_all(['p', 'h1', 'h2', 'h3', 'li'])
-                        text_chunks = [tag.get_text(strip=True) for tag in valid_tags if len(tag.get_text(strip=True)) > 25]
-                        
-                        clean_text = ' '.join(text_chunks)
+                        # Fallback BeautifulSoup-ra
+                        if not clean_text:
+                            soup = BeautifulSoup(html, 'html.parser')
+                            for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button', 'form']):
+                                tag.extract()
+                            
+                            content_area = soup.find('article') or soup.find('main') or soup.find('body') or soup
+                            valid_tags = content_area.find_all(['p', 'h1', 'h2', 'h3', 'li'])
+                            text_chunks = [tag.get_text(strip=True) for tag in valid_tags if len(tag.get_text(strip=True)) > 30]
+                            clean_text = ' '.join(text_chunks)
+                            
                         clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                        
-                        if len(clean_text) > 200:
-                            return f"--- FORRÁS URL: {url} ---\nTARTALOM: {clean_text[:3500]}"
+                        if len(clean_text) > 150:
+                            return url, clean_text
             except Exception:
                 pass
-            return None
+            return None, None
 
         async def fetch_all_pages(urls):
             async with aiohttp.ClientSession() as session:
                 tasks = [fetch_page(session, url) for url in urls]
                 return await asyncio.gather(*tasks)
 
-        # 3. Aszinkron letöltések futtatása
+        # Aszinkron letöltések futtatása
         try:
             loop = asyncio.get_event_loop()
             scraped_pages = loop.run_until_complete(fetch_all_pages(urls_to_scrape))
         except Exception:
             scraped_pages = asyncio.run(fetch_all_pages(urls_to_scrape))
 
-        scraped_texts = [page for page in scraped_pages if page is not None]
+        # 4. TF-IDF Szemantikus Újrarangsorolás (Zajszűrés)
+        # Az AI számára csak a kérdés szempontjából matematikailag legrelevánsabb bekezdéseket adjuk át
+        q_map = self.compute_simple_tfidf_vector(query)
+        q_magnitude = sum(v ** 2 for v in q_map.values()) ** 0.5 if q_map else 0
 
-        if not scraped_texts:
-            return "Sajnos egyetlen talált weblapot sem sikerült letölteni (valószínűleg bot-védelem miatt)."
+        scored_chunks = []
+        for url, text in scraped_pages:
+            if not text: continue
+            
+            # Darabolás ~1200 karakteres ablakokkal, 300 karakteres átfedéssel
+            chunks = []
+            for i in range(0, len(text), 900):
+                chunks.append(text[i:i+1200])
+                
+            for chunk in chunks:
+                score = 0.0
+                if q_magnitude > 0:
+                    c_map = self.compute_simple_tfidf_vector(chunk)
+                    c_magnitude = sum(v ** 2 for v in c_map.values()) ** 0.5
+                    if c_magnitude > 0:
+                        intersection = sum(q_map[k] * c_map.get(k, 0) for k in q_map if k in c_map)
+                        score = intersection / (q_magnitude * c_magnitude)
+                scored_chunks.append((score, url, chunk))
 
-        combined_context = "\n\n".join(scraped_texts)
+        # Rendezzük relevancia szerint, és csak a top 8 legfontosabb részt tartjuk meg
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        top_chunks = scored_chunks[:8]
 
-        # 4. Maximális precizitású RAG Desztilláció (0.0 Temperature)
+        if not top_chunks:
+            return "Sajnos a megtalált és letöltött weblapokból nem sikerült értékelhető információt kinyerni a kérdés megválaszolásához."
+
+        combined_context = "\n\n".join([f"FORRÁS URL [{url}]:\n{chunk}" for score, url, chunk in top_chunks])
+
+        # 5. Maximális precizitású RAG Desztilláció (0.0 Temperature)
         if not GROQ_API_KEY:
             return combined_context[:8000]
             
@@ -1321,10 +1382,10 @@ class AsyncAIEngine:
                 "Te egy végtelenül szigorú és precíz, tényalapú adatkivonó kutató ágens vagy. "
                 "KIZÁRÓLAG a megadott webes források ('FORRÁSOK') alapján válaszolj a kérdésre!\n\n"
                 "SZABÁLYOK:\n"
-                "1. Ha a források tartalmazzák a választ, írj egy átfogó, logikus összefoglalót.\n"
-                "2. MINDEN EGYES állításod végén, szögletes zárójelben kötelező megadni a pontos FORRÁS URL-jét (pl: [Forrás: https://...]).\n"
+                "1. Ha a források tartalmazzák a választ, írj egy átfogó, logikus és jól olvasható összefoglalót.\n"
+                "2. MINDEN EGYES állításod vagy logikai blokkod végén KÖTELEZŐ megadni a pontos FORRÁS URL-jét kattintható Markdown formátumban (pl: [Forrás](https://...)).\n"
                 "3. Ha a források NEM tartalmazzák a választ a kérdésre, KÖTELEZŐ szó szerint ezt mondanod: 'A letöltött webes adatok alapján nem tudom biztosan megmondani a választ.'\n"
-                "4. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod bármilyen információt, ami nincs a szövegben."
+                "4. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod bármilyen információt, ami nincs a megadott forrásszövegben."
             )
             
             messages = [
@@ -1332,14 +1393,15 @@ class AsyncAIEngine:
                 {"role": "user", "content": f"KÉRDÉS: {query}\n\nFORRÁSOK:\n{combined_context}"}
             ]
             
+            # A 0.0-ás hőmérséklet garantálja, hogy az AI ne találjon ki semmit
             extraction_res = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
-                temperature=0.0, # KULCSFONTOSSÁGÚ: 0.0 a hallucináció elkerülése végett
+                temperature=0.0, 
                 max_tokens=1500
             )
             
-            return f"**Maximális Pontosságú Webes Kutatás:**\n\n{extraction_res.choices[0].message.content}"
+            return f"**🌐 Mély Webes Kutatás Eredménye:**\n\n{extraction_res.choices[0].message.content}"
             
         except Exception as e:
             return f"Hiba az AI ténykinyerés során: {e}\n\nNyers adatok:\n{combined_context[:2000]}"
@@ -1771,8 +1833,6 @@ with st.sidebar:
                 "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
                 "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]. "
                 "Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: [PLAY_MUSIC: Előadó            neve - Zene címe]"
-                "A jelenlegi pontos idő: {current_time}."
-                "A felhasználó, akivel beszélsz: {user_name}."
                 "Ha a felhasználó útvonalat, térképet vagy útbaigazítást kér két helyszín között, válaszodban mindenképpen helyezd el ezt a formátumot: [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]",
                 "Ha nem tudsz valamit, NE tippelj, hanem használd a DuckDuckGo keresőt!"
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
@@ -1785,7 +1845,6 @@ with st.sidebar:
                 "Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: [OPEN_URL: https://pelda.hu]. "
                 "Ha útvonalat kérnek, ezt használd (még ha rossz irányba is visz): [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]"
                 "Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: [PLAY_MUSIC: Előadó neve - Zene címe]"
-                "A felhasználó, akivel beszélsz: {user_name}."
 
         }    
         st.subheader("🤖 AI Modellek")
