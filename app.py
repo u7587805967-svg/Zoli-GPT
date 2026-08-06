@@ -12,7 +12,7 @@ import sqlite3
 import urllib.parse
 import json
 import hashlib
-import secrets # <-- ÚJ: Biztonságos só (salt) generálásához
+import secrets 
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -24,11 +24,155 @@ from pypdf import PdfReader
 import docx
 from docx import Document
 from groq import Groq
+import json
+import streamlit.components.v1 as components
 
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
+
+def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
+    """
+    Dinamikus GPS térkép beágyazása:
+    - Lekéri a böngészőből a felhasználó aktuális GPS koordinátáit.
+    - Ráfókuszál a felhasználóra (kék pulzáló pont).
+    - Ha meg van adva célállomás (dest_lat, dest_lng), kirajzolja az útvonalat.
+    """
+    
+    dest_data_json = json.dumps({
+        "name": dest_name,
+        "lat": dest_lat,
+        "lng": dest_lng
+    })
+
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        
+        <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+        <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+        <style>
+            body {{ margin: 0; padding: 0; font-family: Arial, sans-serif; }}
+            #map {{ height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+            
+            .gps-status {{
+                padding: 10px 14px;
+                background-color: #f0f2f6;
+                border-left: 4px solid #007bff;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                font-size: 14px;
+                font-weight: bold;
+                color: #333;
+            }}
+
+            /* Pulzáló kék GPS jelölő a felhasználó pozíciójához */
+            .user-gps-dot {{
+                width: 18px;
+                height: 18px;
+                background-color: #007bff;
+                border: 3px solid #ffffff;
+                border-radius: 50%;
+                box-shadow: 0 0 10px rgba(0, 123, 255, 0.9);
+                animation: pulse 1.6s infinite;
+            }}
+
+            @keyframes pulse {{
+                0% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }}
+                70% {{ box-shadow: 0 0 0 14px rgba(0, 123, 255, 0); }}
+                100% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="status" class="gps-status">📡 GPS kapcsolat keresése...</div>
+        <div id="map"></div>
+
+        <script>
+            const destData = {dest_data_json};
+            const statusDiv = document.getElementById('status');
+
+            // Alapértelmezett térkép (Budapest központ fallback, ha a GPS még nem válaszolt)
+            const map = L.map('map').setView([47.4979, 19.0402], 13);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+
+            // 📍 Böngésző GPS Helymeghatározása
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLng = position.coords.longitude;
+
+                        statusDiv.innerHTML = "✅ GPS pozíció beérkezve! Ráállás a helyzetedre...";
+
+                        // Kék GPS ikon létrehozása
+                        const userIcon = L.divIcon({
+                            className: 'user-gps-dot',
+                            iconSize: [18, 18],
+                            iconAnchor: [9, 9]
+                        });
+
+                        // Felhasználó megjelölése
+                        L.marker([userLat, userLng], { icon: userIcon })
+                         .addTo(map)
+                         .bindPopup("<b>📍 Az Ön jelenlegi pozíciója</b>")
+                         .openPopup();
+
+                        // GPS Fókusz a felhasználóra (Zoom 15-ös szinten)
+                        map.setView([userLat, userLng], 15);
+
+                        // 🏁 Ha van célállomás, útvonal kirajzolása a felhasználótól a célig
+                        if (destData.lat && destData.lng) {
+                            L.Routing.control({
+                                waypoints: [
+                                    L.latLng(userLat, userLng),
+                                    L.latLng(destData.lat, destData.lng)
+                                ],
+                                router: L.Routing.osrmv1({
+                                    serviceUrl: 'https://router.project-osrm.org/route/v1'
+                                }),
+                                routeWhileDragging: false,
+                                show: true,
+                                collapsible: true,
+                                createMarker: function(i, wp, n) {
+                                    if (i === 0) return null; // A saját ikonunkat használjuk a startra
+                                    return L.marker(wp.latLng).bindPopup("<b>🏁 Célállomás: " + (destData.name || "Cél") + "</b>");
+                                }
+                            }).addTo(map);
+
+                            statusDiv.innerHTML = "🏁 Útvonal megtervezve a célállomáshoz: <b>" + (destData.name || "Cél") + "</b>";
+                        }
+                    },
+                    (error) => {
+                        console.error("GPS Hiba:", error);
+                        statusDiv.innerHTML = "⚠️ Nem sikerült lekérni a GPS pozíciót. Kérjük engedélyezd a helymeghatározást a böngészőben!";
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
+                );
+            } else {
+                statusDiv.innerHTML = "❌ A böngésződ nem támogatja a GPS helymeghatározást.";
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    components.html(html_code, height=530)
 
 # --- GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
@@ -1713,6 +1857,28 @@ with tab_chat:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
+                    # ---Zenelejátszás Regex elkapása ---
+                    music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
+                    if music_match:
+                        display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
+                        
+                    response_placeholder.markdown(display_response)
+                    
+                    if urls_to_open:
+                        for url in set(urls_to_open):
+                            js_code = f"""
+                            <script>
+                                window.open('{url}', '_blank');
+                            </script>
+                            """
+                            st.components.v1.html(js_code, height=0)
+                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
+                    
+                    if route_match:
+                        start_point = route_match.group(1).strip()
+                        end_point = route_match.group(2).strip()
+                        show_route_widget(start_point, end_point)
+                        
                     if music_match:
                         search_query = music_match.group(1).strip()
                         with st.spinner(f"🎵 Zene keresése: {search_query}..."):
@@ -1724,8 +1890,27 @@ with tab_chat:
                                         video_url = results[0].get('content', '')
                                         # Ellenőrizzük, hogy tényleg YouTube linket kaptunk-e
                                         if "youtube" in video_url or "youtu.be" in video_url:
-                                            st.video(video_url)
-                                            st.success(f"🎶 Lejátszás: **{results[0].get('title', search_query)}**")
+                                            # YouTube videó ID kinyerése
+                                            import re
+                                            yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
+                                            
+                                            if yt_id_match:
+                                                video_id = yt_id_match.group(1)
+                                                # HTML Iframe generálása autoplay paraméterrel
+                                                autoplay_html = f"""
+                                                    <iframe width="100%" height="315" 
+                                                        src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
+                                                        frameborder="0" 
+                                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                                        allowfullscreen>
+                                                    </iframe>
+                                                """
+                                                st.components.v1.html(autoplay_html, height=315)
+                                                st.success(f"🎶 Automatikus lejátszás: **{results[0].get('title', search_query)}**")
+                                            else:
+                                                # Fallback, ha valamiért nem sikerül kinyerni az ID-t
+                                                st.video(video_url)
+                                                st.success(f"🎶 Lejátszás: **{results[0].get('title', search_query)}**")
                                         else:
                                             st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
                                     else:
