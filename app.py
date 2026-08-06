@@ -1,8 +1,6 @@
 import streamlit as st
 import os
 import datetime
-import httpx
-import re
 import io
 import asyncio
 import time
@@ -10,10 +8,8 @@ import base64
 import pytz
 import sqlite3
 import urllib.parse
-import json
 import hashlib
 import secrets 
-import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -35,12 +31,8 @@ from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 import re
 import json
-import httpx
 import concurrent.futures
 import numpy as np
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
-import re
 import json
 import math
 import datetime
@@ -51,15 +43,11 @@ from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 import datetime
 import json
-import re
 import math
 import urllib.parse
 import concurrent.futures
-import httpx
-from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
-import numpy as np
 
 @st.cache_resource
 def get_embedding_model():
@@ -78,7 +66,6 @@ try:
 except ImportError:
     HAS_TRAFILATURA = False
 
-# Magyar stop-szavak a relevanciaszámításhoz
 HUNGARIAN_STOPWORDS = {
     "a", "az", "egy", "be", "ki", "le", "fel", "meg", "el", "at", "es", "hogy", 
     "nem", "sem", "vagy", "is", "csak", "mint", "volt", "lesz", "cikk", "alatt",
@@ -188,7 +175,6 @@ def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
             
             html_content = resp.text
 
-            # 1. Trafilatura tartalomkinyerés (Precíz cikk-szöveg kinyerő)
             if HAS_TRAFILATURA:
                 extracted = trafilatura.extract(
                     html_content, 
@@ -199,7 +185,6 @@ def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
                 if extracted and len(extracted.strip()) > 120:
                     return extracted.strip()
 
-            # 2. BeautifulSoup fallback
             soup = BeautifulSoup(html_content, 'html.parser')
             for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe", "noscript", "svg"]):
                 tag.extract()
@@ -327,7 +312,6 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
         except Exception:
             pass
 
-        # 2. MOTOR: Google Search fallback
         if HAS_GOOGLE_SEARCH and len(raw_results) < 6:
             try:
                 g_urls = list(google_search(sq, num_results=3, sleep_interval=0.5))
@@ -344,7 +328,6 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
             except Exception:
                 pass
 
-        # 3. MOTOR: Ingyenes Bing Scraper (Wikipedia helyett valódi webes tartalom)
         if len(raw_results) < 8:
             bing_res = bing_ingyenes_kereses(sq, max_results=4)
             for rank, b_item in enumerate(bing_res):
@@ -362,7 +345,6 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     if not raw_results:
         return "Nem találtam releváns friss információt a weben a megadott kérdésre."
 
-    # Párhuzamos Aszinkron Letöltés
     fetched_data = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         future_to_item = {
@@ -392,7 +374,6 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
                 'score': final_score
             })
 
-    # Újrarangsorolás pontszám szerint
     fetched_data.sort(key=lambda x: x['score'], reverse=True)
     top_sources = fetched_data[:max_sources]
 
@@ -460,7 +441,6 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         "lng": dest_lng
     })
 
-    # Sima sztring f-string helyett -> így a JS/CSS kapcsos zárójelei nem okoznak SyntaxError-t
     html_code = """
     <!DOCTYPE html>
     <html>
@@ -522,7 +502,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 attribution: '© OpenStreetMap'
             }).addTo(map);
 
-            // 📍 Böngésző GPS Helymeghatározása
+            //  Böngésző GPS Helymeghatározása
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
@@ -541,7 +521,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                         // Felhasználó megjelölése
                         L.marker([userLat, userLng], { icon: userIcon })
                          .addTo(map)
-                         .bindPopup("<b>📍 Az Ön jelenlegi pozíciója</b>")
+                         .bindPopup("<b> Az Ön jelenlegi pozíciója</b>")
                          .openPopup();
 
                         // GPS Fókusz a felhasználóra
@@ -590,7 +570,6 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     html_code = html_code.replace("__DEST_DATA_JSON__", dest_data_json)
     components.html(html_code, height=530)
 
-# --- GLOBÁLIS SZEMÉLYES KONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class AppConfig:
     DB_FILE: str = "zoli_gpt_local.db"
@@ -608,7 +587,6 @@ class AppConfig:
 
 st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
-# --- INICIALIZÁLÁS ÉS BIZTONSÁGI SORREND ---
 cfg = AppConfig()
 
 # Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
@@ -617,7 +595,6 @@ if "generating" not in st.session_state:
 else:
     st.session_state.generating = False
 
-# --- BEJELENTKEZÉSI ÉS BIZTONSÁGI ÁLLAPOT INICIALIZÁLÁSA ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 if "login_attempts" not in st.session_state:
@@ -625,7 +602,6 @@ if "login_attempts" not in st.session_state:
 if "lockout_until" not in st.session_state:
     st.session_state.lockout_until = 0
 
-# --- 🛡️ BIZTONSÁGOS JELSZÓ HASHELŐ FÜGGVÉNY (PBKDF2-HMAC) ---
 def hash_password(password: str, salt: str = None) -> tuple:
     if salt is None:
         salt = secrets.token_hex(16)
@@ -633,7 +609,6 @@ def hash_password(password: str, salt: str = None) -> tuple:
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
     return key.hex(), salt
 
-# --- ADATBÁZIS INFRASTRUKTÚRA ---
 class DatabaseRepository:
     def __init__(self, db_file: str):
         self.db_file = db_file
@@ -819,7 +794,6 @@ class DatabaseRepository:
 
 db_repo = DatabaseRepository(cfg.DB_FILE)
 
-# --- URL PARAMÉTER ALAPÚ FELHASZNÁLÓ KEZELÉS (HA NINCS SESSION) ---
 if not st.session_state.logged_in_user:
     query_params = st.query_params
     url_user = query_params.get("user", "").lower().strip()
@@ -1097,7 +1071,6 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
-    # --- ADVANCED RAG UPGRADE: Karakter N-Gram alapú Szemantikus TF-IDF ---
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
@@ -1240,7 +1213,6 @@ class AsyncAIEngine:
         import numpy as np
         all_results = []
         
-        # 1. Párhuzamos adatlekérés a webről (Szöveg + Hírek)
         def fetch_text():
             try:
                 with DDGS() as ddgs:
@@ -1272,7 +1244,6 @@ class AsyncAIEngine:
         seen_urls = set()
         unique_results = []
 
-        # 2. A keresőkifejezés vektorizálása a pontos rangsoroláshoz
         q_map = self.compute_simple_tfidf_vector(query)
         q_magnitude = np.sqrt(sum(v ** 2 for v in q_map.values())) if q_map else 0
 
@@ -1354,7 +1325,6 @@ class AsyncAIEngine:
             
         raw_documents = [f"FORRÁS [{r['url']}]:\n{r['content']}" for r in results]
         
-        # 2. Újrarangsorolás (Reranking) a Cohere-rel
         if COHERE_API_KEY:
             cohere_url = "https://api.cohere.ai/v1/rerank"
             headers = {
@@ -1451,7 +1421,6 @@ class AsyncAIEngine:
 
         final_res = "\n\n".join(results).strip()
         return final_res if final_res else "Nem található orvosi adat a megadott keresésre."
-    # --- MÉLYEBB WEBES TARTALOMOLVASÓ ---
     def scrape_url(self, url: str) -> str:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT'}
@@ -1493,7 +1462,6 @@ class AsyncAIEngine:
                 
         return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
         
-        # 1. Fordítás angolra a Groq segítségével
         try:
             client = Groq(api_key=GROQ_API_KEY)
             res = client.chat.completions.create(
@@ -1505,7 +1473,6 @@ class AsyncAIEngine:
         except Exception: 
             en_query = clean_query
 
-        # 2. Ingyenes AI képgenerálás (A Pollinations kép API-ja teljesen ingyenes és KULCS NÉLKÜLI)
         try:
             encoded_prompt = urllib.parse.quote(en_query)
             image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
@@ -1516,11 +1483,9 @@ class AsyncAIEngine:
                 
             base_image = Image.open(io.BytesIO(img_res.content))
             
-            # 3. Animáció készítése tisztán Pythonból (Zoom/Pan effektus)
             frames = []
             width, height = base_image.size
             
-            # 15 képkockát gyártunk le lassan változó kivágással
             for i in range(15):
                 zoom_factor = 1.0 + (i * 0.006) # Finom közelítés
                 new_w = int(width / zoom_factor)
@@ -1531,7 +1496,6 @@ class AsyncAIEngine:
                 right = left + new_w
                 bottom = top + new_h
                 
-                # Kivágás és visszaméretezés az eredeti méretre
                 frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
                 frames.append(frame)
             
@@ -1574,7 +1538,6 @@ class AsyncAIEngine:
             old_stdout = sys.stdout
             redirected_output = sys.stdout = io.StringIO()
             
-            # Restricted környezet beállítása a RestrictedPython segítségével
             loc = {}
             glb = safe_builtins.copy()
             glb['_print_'] = PrintCollector
@@ -1695,7 +1658,7 @@ class MapRoutingEngine:
                     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
                 }});
 
-                L.marker([{start_lat}, {start_lon}], {{icon: startIcon}}).addTo(map).bindPopup("<b>📍 Indulás:</b> {start_name}");
+                L.marker([{start_lat}, {start_lon}], {{icon: startIcon}}).addTo(map).bindPopup("<b> Indulás:</b> {start_name}");
                 L.marker([{end_lat}, {end_lon}], {{icon: endIcon}}).addTo(map).bindPopup("<b>🏁 Érkezés:</b> {end_name}");
 
                 map.fitBounds(polyline.getBounds(), {{padding: [40, 40]}});
@@ -1732,17 +1695,15 @@ def show_route_widget(start_loc: str, end_loc: str):
     st.components.v1.html(map_html, height=420)
     
     # Lépésről lépésre útbaigazítás (opcionálisan lenyitható panel)
-    with st.expander("📍 Lépésről lépésre útbaigazítás", expanded=False):
+    with st.expander(" Lépésről lépésre útbaigazítás", expanded=False):
         for idx, step in enumerate(route['steps'], 1):
             st.write(f"**{idx}.** {step['instruction']} *({step['distance']} m)*")
 
-# --- INICIALIZÁLÁS UTÓLAGOS INFRASTRUKTÚRA ---
 ai_engine = AsyncAIEngine(db_repo, cfg)
 
 if "voice_text" not in st.session_state: st.session_state.voice_text = ""
 if "mute_voice" not in st.session_state: st.session_state.mute_voice = False
 
-# --- HOSSZÚTÁVÚ TÖMÖRÍTETT MEMÓRIA LOGIKA ---
 def get_clean_history(history, max_chars, text_model=None):
     truncated = []
     old_messages = []
@@ -1777,13 +1738,13 @@ with st.sidebar:
         st.session_state.current_thread = "default"
         
     user_threads = db_repo.fetch_threads(active_chat_user)
-    st.subheader("🧵 Csevegési szálak")
+    st.subheader(" Csevegési szálak")
     selected_thread = st.selectbox("Válassz szálat:", user_threads, index=user_threads.index(st.session_state.current_thread) if st.session_state.current_thread in user_threads else 0)
     if selected_thread != st.session_state.current_thread:
         st.session_state.current_thread = selected_thread
         st.rerun()
         
-    new_thread_name = st.text_input("❌ Új szál neve:", placeholder="pl. Munka, Programozás...")
+    new_thread_name = st.text_input(" Új szál neve:", placeholder="pl. Munka, Programozás...")
     if st.button("Új szál létrehozása", use_container_width=True):
         cleaned_thread = new_thread_name.strip()
         if cleaned_thread and cleaned_thread not in user_threads:
