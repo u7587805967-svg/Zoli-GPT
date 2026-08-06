@@ -62,7 +62,7 @@ def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
     return response.choices[0].message.content
 def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
     """
-    3 különböző ingyenes keresőt (DuckDuckGo, Google, Wikipédia) kérdez le 
+    2 különböző ingyenes keresőt (DuckDuckGo, Google) kérdez le 
     egyszerre (párhuzamosan), majd letölti és kinyeri a tartalmakat.
     """
     all_results = []
@@ -78,7 +78,7 @@ def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
                     'body': r.get('body'),
                     'engine': 'DuckDuckGo'
                 })
-        except Exception as e:
+        except Exception:
             pass
         return results
 
@@ -93,41 +93,11 @@ def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
                     'body': 'Google keresési találat weboldala.',
                     'engine': 'Google'
                 })
-        except Exception as e:
+        except Exception:
             pass
         return results
 
-    def search_wikipedia():
-        results = []
-        try:
-            wiki_url = "https://hu.wikipedia.org/w/api.php"
-            params = {
-                "action": "query",
-                "list": "search",
-                "srsearch": query,
-                "format": "json",
-                "srlimit": max_results_per_engine
-            }
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            response = requests.get(wiki_url, params=params, headers=headers, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                for item in data.get("query", {}).get("search", []):
-                    title = item.get("title")
-                    page_id = item.get("pageid")
-                    snippet = BeautifulSoup(item.get("snippet", ""), "html.parser").get_text()
-                    url = f"https://hu.wikipedia.org/?curid={page_id}"
-                    results.append({
-                        'title': title,
-                        'href': url,
-                        'body': snippet,
-                        'engine': 'Wikipedia'
-                    })
-        except Exception as e:
-            pass
-        return results
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future_ddg = executor.submit(search_duckduckgo)
         future_google = executor.submit(search_google)
 
@@ -139,13 +109,14 @@ def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
             all_results.extend(future_google.result(timeout=6))
         except Exception:
             pass
-   
+
     if not all_results:
         return "Nem találtam releváns eredményt a megadott ingyenes keresőkben."
 
     kontextus = []
     seen_urls = set()
     
+    # Letöltjük és kinyerjük a találatok tényleges webes tartalmát
     for idx, res in enumerate(all_results):
         url = res.get('href')
         if not url or url in seen_urls:
@@ -176,11 +147,10 @@ def hajzsalpontos_web_kereses(query, max_results_per_engine=2):
             "-" * 40
         )
         kontextus.append(forras_blokk)
-        if len(kontextus) >= 5:  # Maximum 5 releváns forrást adunk át az AI-nak
+        if len(kontextus) >= 4:  # Maximum 4 forrás átadása az AI-nak
             break
 
     return "\n\n".join(kontextus)
-
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     """
     Dinamikus GPS térkép beágyazása:
