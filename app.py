@@ -37,7 +37,6 @@ import json
 import math
 import datetime
 import concurrent.futures
-import numpy as np
 import httpx
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
