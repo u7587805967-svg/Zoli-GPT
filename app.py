@@ -49,6 +49,21 @@ import numpy as np
 import httpx
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
+import datetime
+import json
+import re
+import math
+import urllib.parse
+import concurrent.futures
+import httpx
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+
+try:
+    from googlesearch import search as google_search
+    HAS_GOOGLE_SEARCH = True
+except ImportError:
+    HAS_GOOGLE_SEARCH = False
 
 try:
     import trafilatura
@@ -60,13 +75,14 @@ except ImportError:
 HUNGARIAN_STOPWORDS = {
     "a", "az", "egy", "be", "ki", "le", "fel", "meg", "el", "at", "es", "hogy", 
     "nem", "sem", "vagy", "is", "csak", "mint", "volt", "lesz", "cikk", "alatt",
-    "van", "vannak", "ma", "majd", "mert", "ha", "de", "rabs", "mely", "amely"
+    "van", "vannak", "ma", "majd", "mert", "ha", "de", "rabs", "mely", "amely",
+    "ebben", "ebbol", "arról", "melyek", "szerint", "után", "során"
 }
 
 def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list[str]:
     """
-    Query Fan-Out + Aktuális dátum kontextus:
-    A felhasználó kérdéséből 2-3 célzott, időszerű és keresőmotor-barát kifejezést alkot.
+    Query Fan-Out + Időtudatos kontextus:
+    A felhasználó kérdését 3 független, pontos keresési kulcsszósorozatra bontja ki.
     """
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y-%m-%d")
@@ -75,12 +91,11 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list
     try:
         prompt = f"""
         Ma {aktualis_datum} van ({aktualis_ev}. év).
-        A feladatod, hogy a felhasználó kérdéséből 2-3 rövid, rendkívül pontos keresőkifejezést (search query) hozz létre.
-        Ha a kérdés időérzékeny (pl. legutóbbi futam, hírek, árfolyam), használd a(z) {aktualis_ev} évet a keresésben!
-        
-        Csak egy érvényes JSON tömböt adj vissza stringekkel, semmi más kísérő szöveget!
-        Példa input: "Mikor volt a legutóbbi F1 futam és ki nyerte?"
-        Példa output: ["F1 legutóbbi futam eredménye {aktualis_ev}", "Formula 1 legutóbbi verseny győztese {aktualis_ev}"]
+        Hozz létre pontosan 3 eltérő, rövid és időszerű keresőkifejezést webes kereséshez a következő kérdésből.
+        Ha a kérdés friss eseményre utal, építsd be a(z) {aktualis_ev} évet!
+
+        Kizárólag egy érvényes JSON tömböt adj vissza stringekkel!
+        Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
 
         Kérdés: {felhasznalo_kerdese}
         """
@@ -101,23 +116,72 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list
     return [felhasznalo_kerdese]
 
 
-def letolt_es_tisztit_html(url: str, timeout: int = 5) -> str:
+def bing_ingyenes_kereses(query: str, max_results: int = 5) -> list[dict]:
     """
-    Lementi a weboldalt és megtisztítja a felesleges HTML elejektől.
+    Ingyenes Bing Webes Keresőmotor (Scraper API-kulcs nélkül).
+    Valódi friss webes találatokat gyűjt be Wikipédia használata nélkül.
     """
+    results = []
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7'
     }
+    encoded_query = urllib.parse.quote(query)
+    search_url = f"https://www.bing.com/search?q={encoded_query}"
+    
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as http_client:
+        with httpx.Client(timeout=5, follow_redirects=True, headers=headers) as client:
+            resp = client.get(search_url)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                items = soup.find_all('li', class_='b_algo')
+                for item in items[:max_results]:
+                    h2 = item.find('h2')
+                    if not h2:
+                        continue
+                    a_tag = h2.find('a')
+                    if not a_tag or not a_tag.get('href'):
+                        continue
+                    
+                    title = a_tag.get_text(strip=True)
+                    link = a_tag['href']
+                    snippet_elem = item.find('p') or item.find('div', class_='b_caption')
+                    snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+                    
+                    if link.startswith('http'):
+                        results.append({
+                            'title': title,
+                            'url': link,
+                            'snippet': snippet
+                        })
+    except Exception:
+        pass
+    return results
+
+
+def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
+    """
+    Biztonságos és zajmentes weboldal-letöltés trafilatura / BeautifulSoup fallbackkel.
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7'
+    }
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers, verify=False) as http_client:
             resp = http_client.get(url)
+            
+            content_type = resp.headers.get("content-type", "").lower()
+            if "text/html" not in content_type and "text/plain" not in content_type:
+                return ""
+
             if resp.status_code != 200:
                 return ""
             
             html_content = resp.text
 
-            # 1. Trafilatura használata (cikkek és strukturált szöveg kinyeréséhez)
+            # 1. Trafilatura tartalomkinyerés (Precíz cikk-szöveg kinyerő)
             if HAS_TRAFILATURA:
                 extracted = trafilatura.extract(
                     html_content, 
@@ -125,7 +189,7 @@ def letolt_es_tisztit_html(url: str, timeout: int = 5) -> str:
                     include_tables=True,
                     favor_precision=True
                 )
-                if extracted and len(extracted.strip()) > 100:
+                if extracted and len(extracted.strip()) > 120:
                     return extracted.strip()
 
             # 2. BeautifulSoup fallback
@@ -136,16 +200,16 @@ def letolt_es_tisztit_html(url: str, timeout: int = 5) -> str:
             main_content = soup.find('main') or soup.find('article') or soup.find('body')
             if main_content:
                 paragraphs = [elem.get_text(" ", strip=True) for elem in main_content.find_all(['p', 'h1', 'h2', 'h3', 'li', 'td'])]
-                full_text = "\n".join([p for p in paragraphs if len(p) > 20])
+                full_text = "\n".join([p for p in paragraphs if len(p) > 25])
                 return full_text
     except Exception:
         pass
     return ""
 
 
-def szamits_bm25_relevancia_pont(query: str, title: str, text: str) -> float:
+def szamits_bm25_n_gram_pont(query: str, title: str, text: str) -> float:
     """
-    Fejlett BM25 + Exact Match + Title Match relevanciaszámító algoritmus.
+    Továbbfejlesztett BM25 + Bigram / Phrase Matching algoritmus.
     """
     def tokenize(s: str) -> list[str]:
         words = re.findall(r'\w+', s.lower())
@@ -161,10 +225,9 @@ def szamits_bm25_relevancia_pont(query: str, title: str, text: str) -> float:
     if not t_tokens:
         return 0.0
 
-    # BM25 Paraméterek
-    k1 = 1.5
+    k1 = 1.2
     b = 0.75
-    avg_doc_len = 300
+    avg_doc_len = 250
     doc_len = len(t_tokens)
 
     score = 0.0
@@ -172,72 +235,78 @@ def szamits_bm25_relevancia_pont(query: str, title: str, text: str) -> float:
         tf = t_tokens.count(token)
         if tf == 0:
             continue
-        # Term Frequency telítődés számítás
         tf_score = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_len / avg_doc_len)))
         score += tf_score
 
-        # Title match bónusz (ha a címben is szerepel a kulcsszó)
         if token in title_tokens:
-            score += 2.5
+            score += 3.0
 
-    # Exact Phrase Matching Bónusz (ha a teljes kifejezés egyben szerepel)
-    query_clean = " ".join(q_tokens)
-    text_clean = " ".join(t_tokens)
-    if query_clean in text_clean:
-        score += 5.0
+    if len(q_tokens) >= 2:
+        for i in range(len(q_tokens) - 1):
+            bigram = f"{q_tokens[i]} {q_tokens[i+1]}"
+            if bigram in text.lower():
+                score += 4.5
 
     return score
 
 
-def kiemel_relevans_bekezdeseket(query: str, full_text: str, max_chars: int = 1500) -> str:
+def kiemel_szemantikus_ablakokat(query: str, full_text: str, max_chars: int = 2000) -> str:
     """
-    A letöltött hosszú cikkből kiválogatja a kérdés szempontjából legfontosabb bekezdéseket (chunkokat).
+    Csúsztatott ablakos (Sliding Window) bekezdés-összegyűjtő a kontextus megőrzésére.
     """
-    paragraphs = [p.strip() for p in full_text.split('\n') if len(p.strip()) > 30]
-    if not paragraphs:
+    sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
+    if not sentences:
         return full_text[:max_chars]
 
-    scored_paragraphs = []
-    for p in paragraphs:
-        score = szamits_bm25_relevancia_pont(query, "", p)
-        scored_paragraphs.append((score, p))
+    windows = []
+    window_size = 3
+    for i in range(0, max(1, len(sentences) - window_size + 1)):
+        chunk = " ".join(sentences[i:i + window_size])
+        if len(chunk) > 40:
+            windows.append(chunk)
 
-    # Relevancia szerint rendezve
-    scored_paragraphs.sort(key=lambda x: x[0], reverse=True)
-    
-    selected_text = []
-    current_length = 0
-    
-    for score, p in scored_paragraphs:
-        if current_length + len(p) > max_chars:
+    if not windows:
+        return full_text[:max_chars]
+
+    scored_windows = []
+    for w in windows:
+        score = szamits_bm25_n_gram_pont(query, "", w)
+        scored_windows.append((score, w))
+
+    scored_windows.sort(key=lambda x: x[0], reverse=True)
+
+    selected_chunks = []
+    current_len = 0
+    seen_chunks = set()
+
+    for score, chunk in scored_windows:
+        if chunk in seen_chunks:
+            continue
+        if current_len + len(chunk) > max_chars:
             break
-        selected_text.append(p)
-        current_length += len(p)
+        selected_chunks.append(chunk)
+        seen_chunks.add(chunk)
+        current_len += len(chunk)
 
-    return "\n\n".join(selected_text) if selected_text else full_text[:max_chars]
+    return "\n\n".join(selected_chunks) if selected_chunks else full_text[:max_chars]
 
 
-def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 4) -> str:
+def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     """
-    Ultra-pontos Webes Kereső Motor:
-    1. Query Fan-Out (intelligens kulcsszó bővítés)
-    2. DuckDuckGo párhuzamos lekérdezés
-    3. Trafilatura / BeautifulSoup tartalomkinyerés
-    4. Bekezdés-alapú szeletelés (Chunking)
-    5. BM25 Újrarangsorolás (Reranking)
+    3-szoros Ingyenes Hibrid Kereső Motor (DuckDuckGo + Google Search + Bing Scraper)
+    Wikipedia NÉLKÜL, 100%-ban friss és ingyenes webes találatokkal.
     """
     search_queries = optimalizal_keresesi_kifejezeseket(client, query)
     
     raw_results = []
     seen_urls = set()
-    
-    # 1. Keresés futtatása a generált kulcsszavakkal
-    ddgs = DDGS()
-    for sq in search_queries:
+
+    for q_idx, sq in enumerate(search_queries):
+        # 1. MOTOR: DuckDuckGo Keresés
         try:
-            results = ddgs.text(sq, max_results=4)
-            if results:
-                for r in results:
+            with DDGS() as ddgs:
+                ddg_res = list(ddgs.text(sq, max_results=4))
+                for rank, r in enumerate(ddg_res):
                     url = r.get('href')
                     if url and url not in seen_urls:
                         seen_urls.add(url)
@@ -245,19 +314,53 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 4) -> str:
                             'title': r.get('title', ''),
                             'url': url,
                             'snippet': r.get('body', ''),
+                            'initial_rank': rank,
+                            'query_idx': q_idx
                         })
         except Exception:
-            continue
+            pass
+
+        # 2. MOTOR: Google Search fallback
+        if HAS_GOOGLE_SEARCH and len(raw_results) < 6:
+            try:
+                g_urls = list(google_search(sq, num_results=3, sleep_interval=0.5))
+                for rank, g_url in enumerate(g_urls):
+                    if g_url and g_url not in seen_urls:
+                        seen_urls.add(g_url)
+                        raw_results.append({
+                            'title': g_url,
+                            'url': g_url,
+                            'snippet': '',
+                            'initial_rank': rank + 2,
+                            'query_idx': q_idx
+                        })
+            except Exception:
+                pass
+
+        # 3. MOTOR: Ingyenes Bing Scraper (Wikipedia helyett valódi webes tartalom)
+        if len(raw_results) < 8:
+            bing_res = bing_ingyenes_kereses(sq, max_results=4)
+            for rank, b_item in enumerate(bing_res):
+                url = b_item['url']
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    raw_results.append({
+                        'title': b_item['title'],
+                        'url': url,
+                        'snippet': b_item['snippet'],
+                        'initial_rank': rank + 1,
+                        'query_idx': q_idx
+                    })
 
     if not raw_results:
         return "Nem találtam releváns friss információt a weben a megadott kérdésre."
 
-    # 2. Párhuzamos oldal-letöltés és intelligens tartalomkinyerés
+    # Párhuzamos Aszinkron Letöltés
     fetched_data = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         future_to_item = {
             executor.submit(letolt_es_tisztit_html, item['url']): item 
-            for item in raw_results[:8]
+            for item in raw_results[:10]
         }
         for future in concurrent.futures.as_completed(future_to_item):
             item = future_to_item[future]
@@ -265,28 +368,27 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 4) -> str:
                 page_text = future.result()
             except Exception:
                 page_text = ""
-            
-            if len(page_text) > 100:
-                # Bekezdés kiemelés a releváns részek megmentéséhez
-                content = kiemel_relevans_bekezdeseket(query, page_text, max_chars=1800)
+
+            if len(page_text) > 120:
+                content = kiemel_szemantikus_ablakokat(query, page_text, max_chars=2000)
             else:
                 content = item['snippet']
 
-            # BM25 Pontszámítás
-            rel_score = szamits_bm25_relevancia_pont(query, item['title'], content)
-            
+            bm25_score = szamits_bm25_n_gram_pont(query, item['title'], content)
+            rrf_score = 1.0 / (60 + item['initial_rank'])
+            final_score = bm25_score + (rrf_score * 10.0)
+
             fetched_data.append({
                 'title': item['title'],
                 'url': item['url'],
                 'content': content,
-                'score': rel_score
+                'score': final_score
             })
 
-    # 3. Újrarangsorolás pontszám szerint
+    # Újrarangsorolás pontszám szerint
     fetched_data.sort(key=lambda x: x['score'], reverse=True)
     top_sources = fetched_data[:max_sources]
 
-    # 4. Strukturált kontextus átadása az AI-nak
     kontextus_blokkok = []
     for idx, src in enumerate(top_sources, 1):
         blokk = (
@@ -303,22 +405,24 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 4) -> str:
 
 def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
     """
-    Válaszgenerálás szigorú hallucináció-mentességgel és hivatkozáskezeléssel.
+    Szigorú, tényalapú válaszgenerálás kattintható Markdown hivatkozásokkal.
     """
     strict_system_prompt = f"""
-    Te egy hajszálpontos, tényalapú kutató asszisztens vagy. 
-    KIZÁRÓLAG a lent megadott 'Keresési Eredmények' alapján válaszolhatsz.
-    
-    SZIGORÚ SZABÁLYOK:
-    1. Minden tényt, amit leírsz, MINDIG hivatkozz a megfelelő forrás számára (pl. [1], [2]).
-    2. Ha a megadott szövegek nem tartalmazzák a válaszhoz szükséges információt, KÖTELEZŐ ezt mondanod: "A jelenlegi webes találatok alapján nem áll rendelkezésre elegendő információ a pontos válaszhoz."
-    3. TILOS kitalálnod vagy feltételezned adatokat (szigorúan hallucináció-mentes működés).
-    4. A válaszod legyen lényegre törő, áttekinthető és szabatos.
-    
+    Te egy precíz, tényalapú kutató asszisztens vagy.
+    KIZÁRÓLAG a megadott 'Keresési Eredmények' blokkból dolgozhatsz!
+
+    SZIGORÚ VÁLASZADÁSI ILLEMTAN:
+    1. Minden tényt hivatkozz pontosan a forrás sorszámával és kattintható Markdown linkjével! 
+       Példa formátum: "...az F1 futamot Monza-ban rendezték [1](https://forras-link.com)."
+    2. Ha a források NEM adnak választ a kérdésre, szó szerint mondd ezt:
+       "A letöltött webes adatok alapján nem áll rendelkezésre elegendő információ a pontos válaszhoz."
+    3. TILOS saját tudásból kiegészíteni vagy feltételezésekbe bocsátkozni!
+    4. A válasz stílusa legyen professzionális, strukturált és lényegretörő.
+
     KERESÉSI EREDMÉNYEK:
     {keresesi_eredmenyek}
     """
-    
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -326,10 +430,12 @@ def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
             {"role": "user", "content": felhasznalo_kerdese}
         ],
         temperature=0.0,
-        max_tokens=1024
+        max_tokens=1200
     )
-    
+
     return response.choices[0].message.content
+
+
 
 
 
