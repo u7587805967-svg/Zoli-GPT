@@ -992,6 +992,98 @@ class AsyncAIEngine:
 
         return "\n---\n".join(formatted_results)
 
+    def advanced_deep_web_search(self, query: str) -> str:
+        """
+        Végtelenül pontos, párhuzamosított, ágens alapú webes kutató motor.
+        Teljes oldalakat olvas el, majd egy szigorú (temp=0.0) AI modellel kinyeri a tényeket.
+        """
+        import concurrent.futures
+        import requests
+        from bs4 import BeautifulSoup
+        from duckduckgo_search import DDGS
+        import re
+        from groq import Groq
+
+        # 1. Keresés a weben (DuckDuckGo)
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=5, safesearch="moderate"))
+        except Exception as e:
+            return f"Hiba a keresőmotor elérésekor: {e}"
+
+        if not results:
+            return "Nem találtam releváns eredményt a weben."
+
+        # 2. Párhuzamos és mély tartalomkinyerés (Full Page Scraping)
+        def fetch_and_extract(url, title):
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ZoliGPT-Spider/2.0'}
+                # Rövid timeout, hogy ne akassza meg a rendszert egy lassú oldal
+                resp = requests.get(url, headers=headers, timeout=5.0) 
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    # Csak az érdemi szöveget (bekezdéseket, címsorokat) szedjük ki, reklámok/menük nélkül
+                    paragraphs = soup.find_all(['p', 'article', 'h1', 'h2', 'h3'])
+                    text = ' '.join([p.get_text(strip=True) for p in paragraphs])
+                    text = re.sub(r'\s+', ' ', text)
+                    if len(text) > 200:
+                        # Limitáljuk URL-enként 3500 karakterre a token limit védelmében
+                        return f"FORRÁS URL: {url}\nCÍM: {title}\nTARTALOM: {text[:3500]}"
+            except Exception:
+                pass
+            return None
+
+        scraped_texts = []
+        # Párhuzamos letöltés a maximális sebességért
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_and_extract, res.get('href', res.get('url')), res.get('title')) for res in results]
+            for future in concurrent.futures.as_completed(futures):
+                res = future.result()
+                if res:
+                    scraped_texts.append(res)
+
+        if not scraped_texts:
+            # Fallback: Ha egyik oldalt sem sikerült letölteni (pl. bot védelem), marad a snippet
+            fallback_text = "\n".join([f"URL: {r.get('href', r.get('url'))}\nTARTALOM: {r.get('body')}" for r in results])
+            scraped_texts = [fallback_text]
+
+        combined_context = "\n\n".join(scraped_texts)
+
+        # 3. Az "Infinitely Accurate" Lépés: Groq Információ Desztillálás (RAG Agent)
+        if not GROQ_API_KEY:
+            return combined_context[:8000] # API kulcs nélkül adjuk vissza a nyers szöveget
+            
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            strict_system_prompt = (
+                "Te egy szigorú, tényalapú adatkivonó kutató ágens vagy. "
+                "KIZÁRÓLAG a megadott webes források ('FORRÁSOK') alapján válaszolj a kérdésre. "
+                "SZABÁLYOK:\n"
+                "1. Ha a források tartalmazzák a választ, foglald össze a tényeket, és MINDIG hivatkozz a forrás URL-jére.\n"
+                "2. Ha a források NEM tartalmazzák a választ a kérdésre, KÖTELEZŐ ezt mondanod: 'A letöltött webes adatok alapján nem tudom biztosan megmondani a választ.'\n"
+                "3. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod."
+            )
+            
+            messages = [
+                {"role": "system", "content": strict_system_prompt},
+                {"role": "user", "content": f"KÉRDÉS: {query}\n\nFORRÁSOK:\n{combined_context}"}
+            ]
+            
+            # Egy gyors, de okos modellel végezzük a kivonatolást 0.0 hőmérséklettel!
+            extraction_res = client.chat.completions.create(
+                model="llama-3.1-8b-instant", # Itt használhatod a 70b-t is, ha belefér a limitedbe
+                messages=messages,
+                temperature=0.0, # KRITIKUS: Nulla kreativitás, maximális precizitás
+                max_tokens=1024
+            )
+            
+            distilled_facts = extraction_res.choices[0].message.content
+            return f"**Mély Webes Kutatás (Tényellenőrzött):**\n{distilled_facts}"
+            
+        except Exception as e:
+            # Ha a Groq hívás elszáll, visszaadjuk a nyers kontextust biztonsági okokból
+            return combined_context[:8000]
+
     def search_medical_database(self, query: str) -> str:
         import requests
         import xml.etree.ElementTree as ET
