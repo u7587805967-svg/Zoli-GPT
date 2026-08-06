@@ -1523,7 +1523,8 @@ if audio:
                         current_tid = st.session_state.get("current_thread", "default")
                         db_repo.log_message(active_chat_user, "user", processed_voice, thread_id=current_tid)
                         
-                        system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                        nyers_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
+                        system_prompt = nyers_prompt.replace("{user_name}", active_chat_user).replace("{current_time}", datetime.datetime.now().strftime("%H:%M"))
                         messages = [{"role": "system", "content": system_prompt}]
                         current_thread_hist = db_repo.fetch_history(active_chat_user, thread_id=current_tid)
                         for msg in current_thread_hist[-6:]:
