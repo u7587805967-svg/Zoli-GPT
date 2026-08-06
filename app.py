@@ -1035,28 +1035,52 @@ class AsyncAIEngine:
 
     def advanced_deep_web_search(self, query: str) -> str:
         """
-        Villámgyors, aszinkron és ágens alapú webes kutató motor.
-        Teljes oldalakat olvas el aiohttp segítségével, letisztítja a zajt, majd egy szigorú AI modellel kinyeri a tényeket.
+        Maximális pontosságú, hibrid (Google+DDG) aszinkron webes kutató motor.
+        Kiszűri a zajt a HTML-ből, és 0.0-ás hőmérséklettel, szigorú forrásmegjelöléssel vonja ki a tényeket.
         """
         import asyncio
         import aiohttp
         from bs4 import BeautifulSoup
         from duckduckgo_search import DDGS
+        from googlesearch import search as google_search
         import re
         from groq import Groq
+        import concurrent.futures
+        import nest_asyncio
+        
+        # Streamlit event loop kompatibilitás javítása
+        nest_asyncio.apply()
 
-        # 1. Keresés a weben (DuckDuckGo)
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5, safesearch="moderate"))
-        except Exception as e:
-            return f"Hiba a keresőmotor elérésekor: {e}"
+        urls_to_scrape = set()
 
-        if not results:
-            return "Nem találtam releváns eredményt a weben."
+        # 1. Hibrid Keresés: Google és DuckDuckGo párhuzamos lekérdezése
+        def fetch_ddg():
+            try:
+                with DDGS() as ddgs:
+                    return [r.get('href', r.get('url')) for r in ddgs.text(query, max_results=3, safesearch="moderate")]
+            except Exception:
+                return []
 
-        # 2. Belső aszinkron függvény a weboldalak letöltésére és tisztítására
-        async def fetch_page(session, url, title):
+        def fetch_google():
+            try:
+                return list(google_search(query, num_results=3, sleep_interval=1))
+            except Exception:
+                return []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            fut_ddg = executor.submit(fetch_ddg)
+            fut_goo = executor.submit(fetch_google)
+            
+            for u in fut_ddg.result():
+                if u: urls_to_scrape.add(u)
+            for u in fut_goo.result():
+                if u: urls_to_scrape.add(u)
+
+        if not urls_to_scrape:
+            return "Nem találtam releváns eredményt a keresőmotorokban."
+
+        # 2. Célzott és zajmentes aszinkron weboldal letöltés
+        async def fetch_page(session, url):
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
@@ -1066,54 +1090,59 @@ class AsyncAIEngine:
                         html = await response.text()
                         soup = BeautifulSoup(html, 'html.parser')
                         
-                        # Agresszív zajszűrés: reklámok, scriptek, menük, láblécek eltávolítása
-                        for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button']):
+                        # Agresszív zajszűrés: felesleges elemek eltávolítása
+                        for tag in soup(['script', 'style', 'nav', 'footer', 'aside', 'header', 'button', 'form']):
                             tag.extract()
                         
-                        # Tiszta szöveg kinyerése
-                        text = soup.get_text(separator=' ', strip=True)
-                        text = re.sub(r'\s+', ' ', text)
+                        # Intelligens tartalomkeresés: előnyben az article és main, különben body
+                        content_area = soup.find('article') or soup.find('main') or soup.find('body') or soup
                         
-                        if len(text) > 200:
-                            return f"FORRÁS URL: {url}\nCÍM: {title}\nTARTALOM: {text[:4000]}"
+                        # Csak a bekezdéseket (p) és a címsorokat szedjük ki, hogy a menüpontok ne szemeteljék tele a memóriát
+                        valid_tags = content_area.find_all(['p', 'h1', 'h2', 'h3', 'li'])
+                        text_chunks = [tag.get_text(strip=True) for tag in valid_tags if len(tag.get_text(strip=True)) > 25]
+                        
+                        clean_text = ' '.join(text_chunks)
+                        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                        
+                        if len(clean_text) > 200:
+                            return f"--- FORRÁS URL: {url} ---\nTARTALOM: {clean_text[:3500]}"
             except Exception:
                 pass
             return None
 
-        async def fetch_all_pages(search_results):
+        async def fetch_all_pages(urls):
             async with aiohttp.ClientSession() as session:
-                tasks = [fetch_page(session, res.get('href', res.get('url')), res.get('title')) for res in search_results]
+                tasks = [fetch_page(session, url) for url in urls]
                 return await asyncio.gather(*tasks)
 
-        # 3. Aszinkron letöltések futtatása Streamlit-kompatibilis módon
+        # 3. Aszinkron letöltések futtatása
         try:
-            scraped_pages = asyncio.run(fetch_all_pages(results))
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            scraped_pages = loop.run_until_complete(fetch_all_pages(results))
+            loop = asyncio.get_event_loop()
+            scraped_pages = loop.run_until_complete(fetch_all_pages(urls_to_scrape))
+        except Exception:
+            scraped_pages = asyncio.run(fetch_all_pages(urls_to_scrape))
 
         scraped_texts = [page for page in scraped_pages if page is not None]
 
-        # Fallback: Ha egyik oldalt sem sikerült letölteni (pl. bot védelem miatt), marad a snippet
         if not scraped_texts:
-            scraped_texts = [f"URL: {r.get('href', r.get('url'))}\nTARTALOM: {r.get('body')}" for r in results]
+            return "Sajnos egyetlen talált weblapot sem sikerült letölteni (valószínűleg bot-védelem miatt)."
 
         combined_context = "\n\n".join(scraped_texts)
 
-        # 4. Az "Infinitely Accurate" Lépés: Groq Információ Desztillálás (RAG Agent)
+        # 4. Maximális precizitású RAG Desztilláció (0.0 Temperature)
         if not GROQ_API_KEY:
             return combined_context[:8000]
             
         try:
             client = Groq(api_key=GROQ_API_KEY)
             strict_system_prompt = (
-                "Te egy szigorú, tényalapú adatkivonó kutató ágens vagy. "
-                "KIZÁRÓLAG a megadott webes források ('FORRÁSOK') alapján válaszolj a kérdésre. "
+                "Te egy végtelenül szigorú és precíz, tényalapú adatkivonó kutató ágens vagy. "
+                "KIZÁRÓLAG a megadott webes források ('FORRÁSOK') alapján válaszolj a kérdésre!\n\n"
                 "SZABÁLYOK:\n"
-                "1. Ha a források tartalmazzák a választ, foglald össze a tényeket, és MINDIG hivatkozz a forrás URL-jére.\n"
-                "2. Ha a források NEM tartalmazzák a választ a kérdésre, KÖTELEZŐ ezt mondanod: 'A letöltött webes adatok alapján nem tudom biztosan megmondani a választ.'\n"
-                "3. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod."
+                "1. Ha a források tartalmazzák a választ, írj egy átfogó, logikus összefoglalót.\n"
+                "2. MINDEN EGYES állításod végén, szögletes zárójelben kötelező megadni a pontos FORRÁS URL-jét (pl: [Forrás: https://...]).\n"
+                "3. Ha a források NEM tartalmazzák a választ a kérdésre, KÖTELEZŐ szó szerint ezt mondanod: 'A letöltött webes adatok alapján nem tudom biztosan megmondani a választ.'\n"
+                "4. TILOS a saját, beépített tudásodra támaszkodnod. TILOS hallucinálnod bármilyen információt, ami nincs a szövegben."
             )
             
             messages = [
@@ -1121,20 +1150,17 @@ class AsyncAIEngine:
                 {"role": "user", "content": f"KÉRDÉS: {query}\n\nFORRÁSOK:\n{combined_context}"}
             ]
             
-            # Precíz kivonatolás (a 70b-versatile jobban teljesít komplex webes szövegeknél, mint az 8b)
             extraction_res = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=messages,
-                temperature=0.0,
-                max_tokens=1024
+                temperature=0.0, # KULCSFONTOSSÁGÚ: 0.0 a hallucináció elkerülése végett
+                max_tokens=1500
             )
             
-            distilled_facts = extraction_res.choices[0].message.content
-            return f"**Mély Webes Kutatás (Tényellenőrzött):**\n{distilled_facts}"
+            return f"**Maximális Pontosságú Webes Kutatás:**\n\n{extraction_res.choices[0].message.content}"
             
         except Exception as e:
-            # Ha a Groq hívás elszáll, visszaadjuk a nyers kontextust biztonsági okokból
-            return combined_context[:8000]
+            return f"Hiba az AI ténykinyerés során: {e}\n\nNyers adatok:\n{combined_context[:2000]}"
 
     def search_medical_database(self, query: str) -> str:
         import requests
