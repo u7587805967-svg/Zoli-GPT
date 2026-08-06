@@ -26,11 +26,62 @@ from docx import Document
 from groq import Groq
 import json
 import streamlit.components.v1 as components
+import requests
 
 import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
+
+def hajzsalpontos_web_kereses(query, max_results=3):
+    """
+    Rákeres a weben, majd letölti és kinyeri az első pár találat tényleges szövegét, 
+    hogy az AI ne csak töredékeket lásson.
+    """
+    ddgs = DDGS()
+    try:
+        search_results = list(ddgs.text(query, max_results=max_results))
+    except Exception as e:
+        return f"Hiba a keresés során: {e}"
+
+    if not search_results:
+        return "Nem találtam releváns eredményt a weben."
+
+    kontextus = []
+    
+    for idx, res in enumerate(search_results):
+        url = res.get('href')
+        title = res.get('title')
+        snippet = res.get('body')
+        
+        page_text = ""
+        # Próbáljuk meg letölteni a weboldal tényleges tartalmát
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                # Csak a bekezdéseket (p) szedjük ki, hogy elkerüljük a menüket/reklámokat
+                paragraphs = soup.find_all('p')
+                page_text = ' '.join([p.get_text() for p in paragraphs])
+                # Limitáljuk a hosszt, hogy ne lépjük túl a token limitet (kb. 2000 karakter/oldal)
+                page_text = page_text[:2000]
+        except Exception:
+            # Ha nem sikerül letölteni, marad a DuckDuckGo snippet
+            page_text = "Nem sikerült a teljes oldalt letölteni. Kivonat: " + snippet
+
+        # Összeállítjuk az adott forrás blokkját
+        forras_blokk = (
+            f"FORRÁS [{idx+1}]:\n"
+            f"Cím: {title}\n"
+            f"URL: {url}\n"
+            f"Tartalom:\n{page_text if len(page_text) > 50 else snippet}\n"
+            "-" * 40
+        )
+        kontextus.append(forras_blokk)
+        time.sleep(0.5) # Kicsit várunk, hogy ne tiltsanak le a szerverek
+        
+    return "\n\n".join(kontextus)
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     """
