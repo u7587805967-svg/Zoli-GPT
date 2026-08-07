@@ -48,6 +48,49 @@ import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 
+
+def magyar_szoto_normalizalo(text: str) -> list[str]:
+    """
+    Kiszűri a magyar ragokat és toldalékokat a pontosabb kulcsszó-egyeztetéshez.
+    """
+    words = re.findall(r'\b\w+\b', text.lower())
+    clean_tokens = []
+    # Gyakoribb magyar ragok / toldalékok levágása (heurisztikus stemmer)
+    suffixes = [
+        'ban', 'ben', 'nak', 'nek', 'val', 'vel', 'ból', 'ből', 'ról', 'ről',
+        'hoz', 'hez', 'höz', 'ig', 'ért', 'ba', 'be', 'ra', 're', 'at', 'et',
+        'ot', 'öt', 'k', 'ak', 'ek', 'ok', 'ök', 'ja', 'je', 'ai', 'ei'
+    ]
+    for w in words:
+        if w in HUNGARIAN_STOPWORDS or len(w) <= 2:
+            continue
+        stemmed = w
+        for suf in suffixes:
+            if stemmed.endswith(suf) and len(stemmed) - len(suf) >= 3:
+                stemmed = stemmed[:-len(suf)]
+                break
+        clean_tokens.append(stemmed)
+    return clean_tokens
+
+def hibrid_rrf_rangsorolas(vector_results: list, bm25_results: list, k: int = 60) -> list:
+    """
+    Reciprocal Rank Fusion (RRF) egyesíti a szemantikus vektoros és a BM25 kulcsszavas találatokat.
+    """
+    scores = {}
+    
+    for rank, doc in enumerate(vector_results):
+        doc_id = doc['url']
+        scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
+        
+    for rank, doc in enumerate(bm25_results):
+        doc_id = doc['url']
+        scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
+        
+    # Egyesített sorrend visszaadása
+    all_docs = {d['url']: d for d in vector_results + bm25_results}
+    sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [all_docs[doc_id] for doc_id, _ in sorted_docs]
+
 @st.cache_resource
 def get_embedding_model():
     # Ingyenes, gyors, és érti a magyar nyelvet
@@ -390,34 +433,44 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     return "\n\n".join(kontextus_blokkok)
 
 
-def generald_a_pontos_valaszt(client, felhasznalo_kerdese, keresesi_eredmenyek):
+def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = ""):
     """
-    Szigorú, tényalapú válaszgenerálás kattintható Markdown hivatkozásokkal.
+    Többlépcsős (Chain-of-Thought) precíziós generálás.
     """
-    strict_system_prompt = f"""
-    Te egy precíz, tényalapú kutató asszisztens vagy.
-    KIZÁRÓLAG a megadott 'Keresési Eredmények' blokkból dolgozhatsz!
+    most = datetime.datetime.now()
+    aktualis_datum = most.strftime("%Y. %B %d.")
 
-    SZIGORÚ VÁLASZADÁSI ILLEMTAN:
-    1. Minden tényt hivatkozz pontosan a forrás sorszámával és kattintható Markdown linkjével! 
-       Példa formátum: "...az F1 futamot Monza-ban rendezték [1](https://forras-link.com)."
-    2. Ha a források NEM adnak választ a kérdésre, szó szerint mondd ezt:
-       "A letöltött webes adatok alapján nem áll rendelkezésre elegendő információ a pontos válaszhoz."
-    3. TILOS saját tudásból kiegészíteni vagy feltételezésekbe bocsátkozni!
-    4. A válasz stílusa legyen professzionális, strukturált és lényegretörő.
+    system_prompt = f"""
+Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
+A mai dátum: {aktualis_datum}.
 
-    KERESÉSI EREDMÉNYEK:
-    {keresesi_eredmenyek}
-    """
+utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
+1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
+   - Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust!
+   - Különítsd el az igazolt tényeket az esetleges ellentmondásoktól!
+   - Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre számolj/gondolkodj!
+
+2. **Források és Hivatkozások:**
+   - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
+   - Ha a kapott kontextus hiányos, de a kérdés általános műveltségi/logikai/kódolási jellegű, használd a saját, mély logikai tudásodat, de jelezd a bizonytalansági tényezőket!
+
+3. **Stílus:**
+   - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
+
+{doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
+
+--- RENDELKEZÉSRE ÁLLÓ WEBES KERESÉSI KONTEXTUS ---
+{web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
+"""
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
-            {"role": "system", "content": strict_system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.0,
-        max_tokens=1200
+        temperature=0.1,  # Alacsony hőmérséklet a hallucinációk minimálisra csökkentéséhez
+        max_tokens=3000   # Bővített válaszhossz a részletes magyarázatokhoz
     )
 
     return response.choices[0].message.content
