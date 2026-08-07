@@ -1495,24 +1495,71 @@ class AsyncAIEngine:
         for word in stop_words:
             clean_query = re.sub(r'\b' + word + r'\b', '', clean_query)
         clean_query = re.sub(r'[^\w\s]', '', clean_query).strip()
-        if not clean_query: return None
+        
+        if not clean_query: 
+            return None
         
         en_query = clean_query
+        
+        # Fordítás angolra (Pollinations miatt)
         if GROQ_API_KEY:
             try:
                 client = Groq(api_key=GROQ_API_KEY)
                 res = client.chat.completions.create(
                     model=text_model, 
-                    messages=[{"role": "user", "content": f"Translate the following prompt to English for an image generator. Output ONLY the English translation, no quotes, no extra text: {clean_query}"}], 
+                    messages=[{"role": "user", "content": f"Translate to English in 5 words max, dynamic scene: {clean_query}"}], 
                     timeout=10.0
                 )
                 translated = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
                 if translated:
                     en_query = translated
-            except Exception:
-                en_query = clean_query
+            except Exception as e:
+                print(f"Fordítási hiba: {e}")
+
+        # GIF Generálás
+        try:
+            encoded_prompt = urllib.parse.quote(en_query)
+            image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
+            
+            img_res = httpx.get(image_url, timeout=20.0)
+            if img_res.status_code != 200:
+                # Fallback sima képre, ha a letöltés nem sikerül
+                return image_url
                 
-        return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux&enhance=true"
+            base_image = Image.open(io.BytesIO(img_res.content))
+            
+            frames = []
+            width, height = base_image.size
+            
+            for i in range(15):
+                zoom_factor = 1.0 + (i * 0.006) 
+                new_w = int(width / zoom_factor)
+                new_h = int(height / zoom_factor)
+                
+                left = (width - new_w) // 2
+                top = (height - new_h) // 2
+                right = left + new_w
+                bottom = top + new_h
+                
+                frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
+                frames.append(frame)
+            
+            output = io.BytesIO()
+            frames[0].save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100, 
+                loop=0
+            )
+            
+            b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
+            return f"data:image/gif;base64,{b64_gif}"
+            
+        except Exception as e:
+            # Ha a GIF elszáll, még mindig visszaadhatjuk a sima statikus képet
+            return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux"
         
         try:
             client = Groq(api_key=GROQ_API_KEY)
