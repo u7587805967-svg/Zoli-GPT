@@ -49,3 +49,29 @@ class DatabaseRepository:
             except sqlite3.OperationalError: pass
             
             conn.commit()
+
+    def get_user(self, username: str):
+        """Lekéri a felhasználó adatait (jelszó hash és salt) a felhasználónév alapján."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Ellenőrizzük, hogy létezik-e a salt oszlop, és annak megfelelően kérdezzük le
+            try:
+                cursor.execute("SELECT password_hash, salt FROM users WHERE username = ?", (username,))
+                return cursor.fetchone()
+            except sqlite3.OperationalError:
+                # Fallback, ha a salt oszlop még nem létezne
+                cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
+                if row:
+                    return row[0], None
+                return None
+
+    def create_user(self, username: str, password_hash: str, salt: str):
+        """Létrehoz egy új felhasználót az adatbázisban."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)",
+                (username, password_hash, salt)
+            )
+            conn.commit()
