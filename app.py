@@ -2215,6 +2215,112 @@ with tab_chat:
                     
                     # --- 🤖 INTELLIGENS ÁGENS (AGENTIC WORKFLOW) TERVEZÉSI FÁZIS ---
                     with st.status("🧠 Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
+                        client = Groq(api_key=GROQ_API_KEY)
+                        
+                        # 1. Eszközök definiálása a modell számára
+                        tools = [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "search_medical_database",
+                                    "description": "Tudományos orvosi adatbázisok keresése (betegségek, gyógyszerek, tünetek). Csak egészségügyi kérdéseknél használd!",
+                                    "parameters": {
+                                        "type": "object",
+                                        "properties": {
+                                            "query": {
+                                                "type": "string", 
+                                                "description": "Az orvosi keresőkifejezés angol nyelven (pl. 'headache causes')."
+                                            }
+                                        },
+                                        "required": ["query"]
+                                    }
+                                }
+                            },
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "query_rag",
+                                    "description": "Keresés a felhasználó személyes dokumentumaiban és emlékeiben.",
+                                    "parameters": {
+                                        "type": "object",
+                                        "properties": {
+                                            "query": {
+                                                "type": "string", 
+                                                "description": "A keresett információ a dokumentumokból."
+                                            }
+                                        },
+                                        "required": ["query"]
+                                    }
+                                }
+                            },
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "advanced_deep_web_search",
+                                    "description": "Általános webes keresés, friss hírek és tények kutatása az interneten.",
+                                    "parameters": {
+                                        "type": "object",
+                                        "properties": {
+                                            "query": {
+                                                "type": "string", 
+                                                "description": "A keresőkifejezés."
+                                            }
+                                        },
+                                        "required": ["query"]
+                                    }
+                                }
+                            }
+                        ]
+
+                        # Ideiglenes üzenetlista a Tool Callinghoz
+                        tool_messages = [
+                            {"role": "system", "content": "Döntsd el, hogy szükséged van-e külső eszközre a válaszhoz!"},
+                            {"role": "user", "content": user_input}
+                        ]
+                        try:
+                            # 2. Megkérdezzük a modellt, akar-e használni eszközt
+                            response = client.chat.completions.create(
+                                model=TEXT_MODEL, 
+                                messages=tool_messages,
+                                tools=tools,
+                                tool_choice="auto",
+                                max_tokens=1000
+                            )
+                            
+                            response_message = response.choices[0].message
+                            tool_calls = response_message.tool_calls
+                            
+                            # 3. Ha a modell használni akar egy (vagy több) eszközt
+                            if tool_calls:
+                                for tool_call in tool_calls:
+                                    function_name = tool_call.function.name
+                                    function_args = json.loads(tool_call.function.arguments)
+                                    search_query = function_args.get("query")
+                                    
+                                    if function_name == "search_medical_database":
+                                        agent_status.update(label="🏥 Hivatalos orvosi publikációk kutatása...")
+                                        med_results = ai_engine.search_medical_database(search_query)
+                                        context_addition += f"\n\nFONTOS ORVOSI KONTEXTUS:\n{med_results}"
+                                        agent_status.write("✅ Tudományos orvosi cikkek beolvasva.")
+                                        
+                                    elif function_name == "query_rag":
+                                        agent_status.update(label="📚 Keresés a személyes emlékekben...")
+                                        rag_results = ai_engine.query_vector_db_with_metadata(search_query, active_chat_user, TEXT_MODEL)
+                                        if rag_results:
+                                            rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
+                                            context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA KONTEXTUS:\n{rag_context}"
+                                            agent_status.write("✅ Releváns belső dokumentum részletek beolvasva.")
+                                            
+                                    elif function_name == "advanced_deep_web_search":
+                                        agent_status.update(label="🌐 Mély, tényalapú webes elemzés folyamatban...")
+                                        web_results = ai_engine.advanced_deep_web_search(search_query)
+                                        context_addition += f"\n\nFONTOS WEBES KONTEXTUS:\n{web_results}"
+                                        agent_status.write("✅ Webes kutatás befejezve.")
+                            else:
+                                agent_status.write("🧠 Az AI úgy döntött, saját tudásból válaszol (nem hívott eszközt).")
+                                
+                        except Exception as e:
+                            agent_status.write(f"⚠️ Hiba a tool calling közben: {e}")
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
                             routing_res = client.chat.completions.create(
