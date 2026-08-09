@@ -475,7 +475,83 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 
     return response.choices[0].message.content
 
+def generald_es_ellenorizd_a_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "") -> str:
+    """
+    2-lépcsős Önellenőrző (Self-Correction / Reflection) Generátor.
+    
+    1. Lépés: Llama-3.3-70b elkészíti az elsődleges válasz-piszkozatot.
+    2. Lépés: Egy szigorú Tényellenőrző / Kritikus Ágens ellenőrzi, kiszűri a hallucinációkat és javítja a hibákat.
+    """
+    most = datetime.datetime.now()
+    aktualis_datum = most.strftime("%Y. %B %d.")
 
+    generator_system_prompt = f"""
+Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
+A mai dátum: {aktualis_datum}.
+
+UTASÍTÁSOK:
+1. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
+2. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
+3. Gondolkodj lépésről lépésre (Chain-of-Thought)!
+
+{doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
+
+{web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
+"""
+
+    draft_response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": generator_system_prompt},
+            {"role": "user", "content": felhasznalo_kerdese}
+        ],
+        temperature=0.2, # Enyhe kreativitás az összetett válaszképzéshez
+        max_tokens=2500
+    ).choices[0].message.content
+
+    # Ha a válasz túl rövid vagy nem jött létre piszkozat, visszatérünk vele
+    if not draft_response or len(draft_response.strip()) < 30:
+        return draft_response
+
+    verifier_system_prompt = f"""
+Te egy szigorú, kíméletlen TÉNYELLENŐRZŐ ÉS LOGIKAI KRITIKUS (Fact-Checker Agent) vagy.
+A feladatod, hogy átvizsgáld az AI által generált válasz-piszkozatot, és kijavítsd annak esetleges hibáit.
+
+ELLENŐRZÉSI SZEMPONTOK:
+1. **Ténybeli pontosság & Hallucináció:** A piszkozat tartalmaz-e olyan állítást, évszámot vagy adatot, ami ellentmond a megadott kontextusnak vagy a valóságnak? Ha igen, korrigáld!
+2. **Logika & Kódolás:** Ha matematikai levezetés vagy programkód van a válaszban, van-e benne szintaktikai, logikai vagy számítási hiba?
+3. **Forráshivatkozások:** Helyesek-e a hivatkozási linkek ([1](URL))? Nem hivatkozik-e nem létező forrásra?
+4. **Hiánytalanság:** Teljes választ ad-e a felhasználó kérdésére?
+
+UTASÍTÁSOK A KIMENETHEZ:
+- Ha a piszkozat HIBÁTLAN és TÉNYALAPÚ, add vissza pontosan a piszkozat szövegét!
+- Ha HIBÁT vagy HALLUCINÁCIÓT találsz, írd át a szöveget a javított változatra!
+- A kimeneted KIZÁRÓLAG a végleges, kijavított válasz legyen (ne tegyél elé megjegyzést pl. "Íme a javított válasz:").
+"""
+
+    verifier_user_prompt = f"""
+KÉRDÉS:
+{felhasznalo_kerdese}
+
+BEGYŰJTÖTT KONTEXTUS (RAG + WEB):
+{doc_kontextus}
+{web_kontextus}
+
+GENERÁLT PISZKOZAT:
+{draft_response}
+"""
+
+    verified_response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile", # Használhatsz "llama-3.1-8b-instant"-ot is, ha gyorsítani akarod
+        messages=[
+            {"role": "system", "content": verifier_system_prompt},
+            {"role": "user", "content": verifier_user_prompt}
+        ],
+        temperature=0.0, # 0.0 hőmérséklet a maximális precizitásért és tényhűségért
+        max_tokens=3000
+    ).choices[0].message.content
+
+    return verified_response
 
 
 
