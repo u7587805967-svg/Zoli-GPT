@@ -454,27 +454,9 @@ UTASÍTÁSOK A PONTOSSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 
 3. **Források és Hivatkozások:**
    - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
-
-4. **Stílus:**
-   - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
-
-{doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
-
---- RENDELKEZÉSRE ÁLLÓ WEBES KERESÉSI KONTEXTUS ---
-{web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
-"""
-
-utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
-1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
-   - Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust!
-   - Különítsd el az igazolt tényeket az esetleges ellentmondásoktól!
-   - Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre számolj/gondolkodj!
-
-2. **Források és Hivatkozások:**
-   - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
    - Ha a kapott kontextus hiányos, de a kérdés általános műveltségi/logikai/kódolási jellegű, használd a saját, mély logikai tudásodat, de jelezd a bizonytalansági tényezőket!
 
-3. **Stílus:**
+4. **Stílus:**
    - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
 
 {doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
