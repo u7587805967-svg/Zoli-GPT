@@ -2314,7 +2314,7 @@ with tab_chat:
                         try:
                             # 2. Megkérdezzük a modellt, akar-e használni eszközt
                             response = client.chat.completions.create(
-                                model=TEXT_MODEL, # Bizonyosodj meg róla, hogy ez pl. "llama-3.3-70b-versatile"
+                                model=TEXT_MODEL,
                                 messages=tool_messages,
                                 tools=tools,
                                 tool_choice="auto",
@@ -2322,8 +2322,43 @@ with tab_chat:
                             )
                             
                             response_message = response.choices[0].message
-                            tool_calls = response_message.tool_calls
-                            response_content = response_message.content or ""
+                        response_content = response_message.content or ""
+                        
+                        full_response = response_content
+
+                        # Biztonsági háló: Azonnal kiszűrjük a [PLAY_MUSIC: ...] taget, ha a modell beleírta
+                        if "[PLAY_MUSIC:" in response_content:
+                            match_music = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', response_content)
+                            if match_music:
+                                song_query = match_music.group(1).strip()
+                                
+                                # Eltávolítjuk a csúnya taget a szövegből, hogy ne látszódjon a chaten
+                                clean_content = response_content.replace(match_music.group(0), "").strip()
+                                
+                                # Megkeressük és elindítjuk a zenét a DuckDuckGo / YouTube segítségével
+                                try:
+                                    from duckduckgo_search import DDGS
+                                    query_to_search = f"{song_query} site:youtube.com/watch"
+                                    video_url = None
+                                    
+                                    with DDGS() as ddgs:
+                                        results = [r for r in ddgs.text(query_to_search, max_results=3)]
+                                        for r in results:
+                                            href = r.get("href", "")
+                                            if "watch?v=" in href:
+                                                video_url = href
+                                                break
+                                    
+                                    if video_url:
+                                        st.video(video_url)
+                                        st.success(f"🎶 Lejátszás: **{song_query}**")
+                                    else:
+                                        st.warning("Nem találtam YouTube videót ehhez a zenéhez.")
+                                except Exception as e:
+                                    st.error(f"Hiba a zene keresése közben: {e}")
+                                    
+                                # A végleges mentett üzenet a tiszta szöveg lesz (vagy egy kedves mondat)
+                                full_response = clean_content if clean_content else f"Itt van a kért zene: {song_query}"
                             
                             executed_tool = False
                             
