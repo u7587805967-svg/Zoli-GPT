@@ -2217,19 +2217,19 @@ with tab_chat:
                     with st.status("🧠 Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         client = Groq(api_key=GROQ_API_KEY)
                         
-                        # 1. Eszközök definiálása a modell számára (már mind az 5 eszközzel)
+                        # 1. Eszközök definiálása (ANGOL leírásokkal a pontosabb modell-döntésért!)
                         tools = [
                             {
                                 "type": "function",
                                 "function": {
                                     "name": "search_medical_database",
-                                    "description": "Tudományos orvosi adatbázisok keresése (betegségek, gyógyszerek, tünetek). Csak egészségügyi kérdéseknél használd!",
+                                    "description": "Search scientific medical databases for diseases, medications, symptoms, and health questions. Use ONLY for medical or health-related queries.",
                                     "parameters": {
                                         "type": "object",
                                         "properties": {
                                             "query": {
                                                 "type": "string", 
-                                                "description": "Az orvosi keresőkifejezés angol nyelven (pl. 'headache causes')."
+                                                "description": "The medical search query in English."
                                             }
                                         },
                                         "required": ["query"]
@@ -2240,13 +2240,13 @@ with tab_chat:
                                 "type": "function",
                                 "function": {
                                     "name": "query_rag",
-                                    "description": "Keresés a felhasználó személyes dokumentumaiban és emlékeiben.",
+                                    "description": "Search the user's personal documents, files, and memories. Use when the user asks about their own uploaded files or personal notes.",
                                     "parameters": {
                                         "type": "object",
                                         "properties": {
                                             "query": {
                                                 "type": "string", 
-                                                "description": "A keresett információ a dokumentumokból."
+                                                "description": "The search query for internal documents."
                                             }
                                         },
                                         "required": ["query"]
@@ -2257,13 +2257,13 @@ with tab_chat:
                                 "type": "function",
                                 "function": {
                                     "name": "advanced_deep_web_search",
-                                    "description": "Általános webes keresés, friss hírek és tények kutatása az interneten.",
+                                    "description": "Perform general web search for fresh news, facts, and public information on the internet.",
                                     "parameters": {
                                         "type": "object",
                                         "properties": {
                                             "query": {
                                                 "type": "string", 
-                                                "description": "A keresőkifejezés."
+                                                "description": "The search keywords."
                                             }
                                         },
                                         "required": ["query"]
@@ -2274,13 +2274,13 @@ with tab_chat:
                                 "type": "function",
                                 "function": {
                                     "name": "search_music",
-                                    "description": "Zene keresése és lejátszása a YouTube-on (pl. dalok, előadók, zenei videók). Akkor használd, ha a felhasználó zenét szeretne hallgatni.",
+                                    "description": "Search and play music, songs, or videos on YouTube. Use this WHENEVER the user wants to listen to music, a song, or an artist.",
                                     "parameters": {
                                         "type": "object",
                                         "properties": {
                                             "query": {
                                                 "type": "string", 
-                                                "description": "A zene címe vagy előadója."
+                                                "description": "The song title or artist name to play."
                                             }
                                         },
                                         "required": ["query"]
@@ -2291,13 +2291,13 @@ with tab_chat:
                                 "type": "function",
                                 "function": {
                                     "name": "plan_route",
-                                    "description": "Útvonaltervezés és GPS navigáció egy megadott célállomáshoz. Akkor használd, ha a felhasználó utazási útvonalat vagy térképet kér.",
+                                    "description": "Plan a travel route, navigation, or map directions to a destination. Use this WHENEVER the user asks for directions, travel routes, or a map to somewhere.",
                                     "parameters": {
                                         "type": "object",
                                         "properties": {
                                             "query": {
                                                 "type": "string", 
-                                                "description": "A célállomás neve vagy címe."
+                                                "description": "The destination address or place name."
                                             }
                                         },
                                         "required": ["query"]
@@ -2307,7 +2307,7 @@ with tab_chat:
                         ]
 
                         tool_messages = [
-                            {"role": "system", "content": "Döntsd el, hogy szükséged van-e külső eszközre a válaszhoz!"},
+                            {"role": "system", "content": "You are a smart assistant. Decide which tool (if any) is needed to fulfill the user request."},
                             {"role": "user", "content": user_input}
                         ]
 
@@ -2324,7 +2324,7 @@ with tab_chat:
                             response_message = response.choices[0].message
                             tool_calls = response_message.tool_calls
                             
-                            # 3. Ha a modell használni akar egy (vagy több) eszközt
+                            # 3. Ha a modell használni akar egy eszközt
                             if tool_calls:
                                 for tool_call in tool_calls:
                                     function_name = tool_call.function.name
@@ -2353,14 +2353,12 @@ with tab_chat:
 
                                     elif function_name == "search_music":
                                         agent_status.update(label="🎵 Zene keresése a YouTube-on...")
-                                        # Itt rögzítheted a zene keresési kulcsszót session_state-be vagy meghívhatod a zenelejátszó logikát
                                         st.session_state.trigger_music_search = search_query
                                         context_addition += f"\n\nZENEKERESÉSI IGÉNY: {search_query}"
                                         agent_status.write("✅ Zene keresése előkészítve.")
 
                                     elif function_name == "plan_route":
                                         agent_status.update(label="🗺️ Útvonaltervezés indítása...")
-                                        # Itt rögzítheted a célállomást a GPS navigációhoz (pl. render_gps_navigation)
                                         st.session_state.gps_dest_name = search_query
                                         context_addition += f"\n\nÚTVONALTERVEZÉSI IGÉNY CÉLÁLLOMÁS: {search_query}"
                                         agent_status.write("✅ Útvonaltervezés előkészítve.")
