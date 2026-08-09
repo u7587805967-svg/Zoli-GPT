@@ -487,9 +487,12 @@ Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
 A mai dátum: {aktualis_datum}.
 
 UTASÍTÁSOK:
-1. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
-2. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
-3. Gondolkodj lépésről lépésre (Chain-of-Thought)!
+1. **Időtudatosság (Háttérkontextus):** A mai dátum kizárólag a friss hírek és információk időbeli elhelyezésére szolgál: {aktualis_datum}. 
+   - NE említsd meg és NE ismételgesd a dátumot vagy az időt a válaszaidban, kivéve ha a felhasználó kifejezetten erre kérdez rá!
+
+2. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
+3. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
+4. Gondolkodj lépésről lépésre (Chain-of-Thought)!
 
 {doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
 
@@ -544,7 +547,7 @@ GENERÁLT PISZKOZAT:
             {"role": "system", "content": verifier_system_prompt},
             {"role": "user", "content": verifier_user_prompt}
         ],
-        temperature=0.0, # 0.0 hőmérséklet a maximális precizitásért és tényhűségért
+        temperature=0.0, 
         max_tokens=3000
     ).choices[0].message.content
 
