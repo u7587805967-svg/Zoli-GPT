@@ -2353,9 +2353,35 @@ with tab_chat:
 
                                     elif function_name == "search_music":
                                         agent_status.update(label="🎵 Zene keresése a YouTube-on...")
-                                        st.session_state.trigger_music_search = search_query
-                                        context_addition += f"\n\nZENEKERESÉSI IGÉNY: {search_query}"
-                                        agent_status.write("✅ Zene keresése előkészítve.")
+                                        try:
+                                            # Megkeressük a zenét a YouTube-on DuckDuckGo segítségével
+                                            from duckduckgo_search import DDGS
+                                            
+                                            query_to_search = f"{search_query} site:youtube.com/watch"
+                                            video_url = None
+                                            video_title = search_query
+                                            
+                                            with DDGS() as ddgs:
+                                                results = [r for r in ddgs.text(query_to_search, max_results=3)]
+                                                for r in results:
+                                                    href = r.get("href", "")
+                                                    if "watch?v=" in href:
+                                                        video_url = href
+                                                        video_title = r.get("title", search_query)
+                                                        break
+                                            
+                                            if video_url:
+                                                context_addition += f"\n\nLEJÁTSZOTT ZENE LINKJE: {video_url} (Cím: {video_title})"
+                                                agent_status.write(f"✅ Zene megtalálva: {video_title}")
+                                                # Azonnal megjelenítjük a Streamlit videó lejátszót
+                                                st.video(video_url)
+                                                st.success(f"🎶 Lejátszás: **{video_title}**")
+                                            else:
+                                                agent_status.write("⚠️ Nem találtam megfelelő YouTube videót ehhez a zenéhez.")
+                                                context_addition += f"\n\nZENEKERESÉSI HIBA: Nem találtam videót a következőhöz: {search_query}"
+                                                
+                                        except Exception as music_err:
+                                            agent_status.write(f"⚠️ Hiba a zene keresése közben: {music_err}")
 
                                     elif function_name == "plan_route":
                                         agent_status.update(label="🗺️ Útvonaltervezés indítása...")
