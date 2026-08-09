@@ -2314,7 +2314,7 @@ with tab_chat:
                         try:
                             # 2. Megkérdezzük a modellt, akar-e használni eszközt
                             response = client.chat.completions.create(
-                                model=TEXT_MODEL, 
+                                model=TEXT_MODEL, # Bizonyosodj meg róla, hogy ez pl. "llama-3.3-70b-versatile"
                                 messages=tool_messages,
                                 tools=tools,
                                 tool_choice="auto",
@@ -2323,13 +2323,17 @@ with tab_chat:
                             
                             response_message = response.choices[0].message
                             tool_calls = response_message.tool_calls
+                            response_content = response_message.content or ""
                             
-                            # 3. Ha a modell natívan használni akar egy eszközt
+                            executed_tool = False
+                            
+                            # A) 1. PRÓBA: Natív Tool Calling feldolgozása
                             if tool_calls:
                                 for tool_call in tool_calls:
                                     function_name = tool_call.function.name
                                     function_args = json.loads(tool_call.function.arguments)
                                     search_query = function_args.get("query")
+                                    executed_tool = True
                                     
                                     if function_name == "search_medical_database":
                                         agent_status.update(label="🏥 Hivatalos orvosi publikációk kutatása...")
@@ -2375,7 +2379,6 @@ with tab_chat:
                                                 st.success(f"🎶 Lejátszás: **{video_title}**")
                                             else:
                                                 agent_status.write("⚠️ Nem találtam megfelelő YouTube videót ehhez a zenéhez.")
-                                                
                                         except Exception as music_err:
                                             agent_status.write(f"⚠️ Hiba a zene keresése közben: {music_err}")
 
@@ -2384,8 +2387,40 @@ with tab_chat:
                                         st.session_state.gps_dest_name = search_query
                                         context_addition += f"\n\nÚTVONALTERVEZÉSI IGÉNY CÉLÁLLOMÁS: {search_query}"
                                         agent_status.write("✅ Útvonaltervezés előkészítve.")
-                            else:
-                                agent_status.write("🧠 Az AI úgy döntött, saját tudásból válaszol (nem hívott eszközt).")
+
+                            # B) 2. PRÓBA (BIZTONSÁGI HÁLÓ): Ha a modell mégis szöveges taget írt volna natív hívás helyett
+                            if not executed_tool and "[PLAY_MUSIC:" in response_content:
+                                match = re.search(r'\[PLAY_MUSIC:\s*(.*?)\]', response_content)
+                                if match:
+                                    search_query = match.group(1).strip()
+                                    executed_tool = True
+                                    agent_status.update(label="🎵 Zene keresése a szöveges taget elkapva...")
+                                    try:
+                                        from duckduckgo_search import DDGS
+                                        query_to_search = f"{search_query} site:youtube.com/watch"
+                                        video_url = None
+                                        video_title = search_query
+                                        
+                                        with DDGS() as ddgs:
+                                            results = [r for r in ddgs.text(query_to_search, max_results=3)]
+                                            for r in results:
+                                                href = r.get("href", "")
+                                                if "watch?v=" in href:
+                                                    video_url = href
+                                                    video_title = r.get("title", search_query)
+                                                    break
+                                        
+                                        if video_url:
+                                            agent_status.write(f"✅ Zene megtalálva: {video_title}")
+                                            st.video(video_url)
+                                            st.success(f"🎶 Lejátszás: **{video_title}**")
+                                        else:
+                                            agent_status.write("⚠️ Nem találtam megfelelő YouTube videót ehhez a zenéhez.")
+                                    except Exception as music_err:
+                                        agent_status.write(f"⚠️ Hiba a zene keresése közben: {music_err}")
+
+                            if not executed_tool:
+                                agent_status.write("🧠 Az AI saját tudásból válaszol.")
                                 
                         except Exception as e:
                             agent_status.write(f"⚠️ Hiba a tool calling közben: {e}")
