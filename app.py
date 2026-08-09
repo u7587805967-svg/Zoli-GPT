@@ -2374,14 +2374,7 @@ with tab_chat:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
                         current_date_info = f"Mai dátum és pontos idő (Budapest): {now_bp.strftime('%Y-%m-%d %H:%M:%S (%A)')}\n"
-                        
-                        world_clocks = "Világóra (Aktuális idők):\n"
-                        timezones = {
-                            "London": "Europe/London",
-                            "New York": "America/New York",
-                            "Los Angeles": "America/Los Angeles",
-                            "Tokió": "Asia/Tokyo",
-                            "Sydney": "Australia/Sydney"
+                     
                         }
                         for city, tz_name in timezones.items():
                             try:
