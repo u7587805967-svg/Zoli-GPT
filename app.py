@@ -1,4 +1,5 @@
 import streamlit as st
+import sqlite
 import os
 import datetime
 import io
@@ -47,6 +48,97 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
+
+class AsyncSQLiteHandler:
+    """
+    Aszinkron SQLite adatbázis-kezelő osztály.
+    Kizárólag a beépített 'sqlite3' és 'asyncio' könyvtárakat használja,
+    így külső függőség (pl. aiosqlite) nélkül teszi lehetővé a nem blokkoló adatbázis-műveleteket.
+    """
+    
+    def __init__(self, db_name: str = "app_database.db"):
+        self.db_name = db_name
+
+    def _execute_sync(self, query: str, parameters: tuple = (), fetch: bool = False):
+        """
+        [PRIVÁT METÓDUS] Ez végzi el a tényleges, szinkron adatbázis-műveletet.
+        Ezt a metódust egy külön szálon fogjuk meghívni, hogy ne blokkoljuk az aszinkron futást.
+        """
+        connection = None
+        try:
+            # 1. Kapcsolódás az adatbázishoz
+            connection = sqlite3.connect(self.db_name)
+            cursor = connection.cursor()
+            
+            # 2. SQL parancs végrehajtása a paraméterekkel (SQL injection elleni védelem)
+            cursor.execute(query, parameters)
+            
+            if fetch:
+                # SELECT lekérdezés esetén visszaadjuk az összes sort
+                result = cursor.fetchall()
+            else:
+                # INSERT, UPDATE, DELETE esetén rögzítjük a változást
+                connection.commit()
+                result = cursor.rowcount  # Visszaadjuk az érintett sorok számát
+                
+            return result
+        
+        except sqlite3.Error as e:
+            # Specifikus adatbázis hibák elkapása és kiírása
+            print(f"[HIBA] Adatbázis hiba a '{query}' végrehajtása közben: {e}")
+            if connection:
+                connection.rollback()  # Hiba esetén visszagörgetjük a tranzakciót
+            return None
+            
+        except Exception as e:
+            # Minden egyéb váratlan hiba elkapása
+            print(f"[KRITIKUS HIBA] Váratlan hiba történt: {e}")
+            return None
+            
+        finally:
+            # Ez a blokk mindenképpen lefut: gondoskodunk a kapcsolat lezárásáról
+            if connection:
+                connection.close()
+
+    async def execute_read(self, query: str, parameters: tuple = ()) -> list:
+        """
+        Aszinkron metódus adatok lekérdezésére (SELECT).
+        """
+        # Az asyncio.to_thread külön szálon futtatja a szinkron kódot
+        return await asyncio.to_thread(self._execute_sync, query, parameters, True)
+
+    async def execute_write(self, query: str, parameters: tuple = ()) -> int:
+        """
+        Aszinkron metódus adatok módosítására (INSERT, UPDATE, DELETE).
+        """
+        return await asyncio.to_thread(self._execute_sync, query, parameters, False)
+
+async def main():
+    db = AsyncSQLiteHandler("test.db")
+    
+    # 1. Tábla létrehozása (Írási művelet)
+    create_table_query = """
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        age INTEGER
+    )
+    """
+    await db.execute_write(create_table_query)
+    
+    # 2. Adat beszúrása (Írási művelet paraméterekkel)
+    insert_query = "INSERT INTO users (name, age) VALUES (?, ?)"
+    await db.execute_write(insert_query, ("Teszt Elek", 30))
+    
+    # 3. Adat lekérdezése (Olvasási művelet)
+    select_query = "SELECT * FROM users WHERE age >= ?"
+    results = await db.execute_read(select_query, (18,))
+    
+    print("Lekérdezés eredménye:", results)
+
+# Ha a scriptet közvetlenül futtatják
+if __name__ == "__main__":
+    asyncio.run(main())
 
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
