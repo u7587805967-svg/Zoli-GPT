@@ -441,7 +441,7 @@ UTASÍTÁSOK A PONTOSSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 1. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
 2. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
 3. Gondolkodj lépésről lépésre (Chain-of-Thought)!
-4. SOHA ne írd bele a válaszodba a mai dátumot, az időt vagy az évet, hacsak a felhasználó nem kérdezi!
+4. **Dátum- és időcenzúra (KULCSFONTOSSÁGÚ):** Ha a piszkozat bármilyen formában tartalmazza a mai dátumot, az aktuális évet vagy az időpontot (pl. "Ma 2026...", "2026-ban vagyunk"), és azt a felhasználó NEM kérdezte kifejezetten, KÖTELEZŐen távolítsd el!
 
 {doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
 
