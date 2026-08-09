@@ -434,20 +434,14 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 
 def generald_es_ellenorizd_a_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "") -> str:
 
-    most = datetime.datetime.now()
-    aktualis_datum = most.strftime("%Y. %B %d.")
-
     generator_system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
-A mai dátum: {aktualis_datum}.
 
-UTASÍTÁSOK:
-1. **Időtudatosság (Háttérkontextus):** A mai dátum kizárólag a friss hírek és információk időbeli elhelyezésére szolgál: {aktualis_datum}. 
-   - NE említsd meg és NE ismételgesd a dátumot vagy az időt a válaszaidban, kivéve ha a felhasználó kifejezetten erre kérdez rá!
-
-2. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
-3. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
-4. Gondolkodj lépésről lépésre (Chain-of-Thought)!
+UTASÍTÁSOK A PONTOSSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
+1. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
+2. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
+3. Gondolkodj lépésről lépésre (Chain-of-Thought)!
+4. SOHA ne írd bele a válaszodba a mai dátumot, az időt vagy az évet, hacsak a felhasználó nem kérdezi!
 
 {doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
 
@@ -460,11 +454,10 @@ UTASÍTÁSOK:
             {"role": "system", "content": generator_system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.2, # Enyhe kreativitás az összetett válaszképzéshez
+        temperature=0.2,
         max_tokens=2500
     ).choices[0].message.content
 
-    # Ha a válasz túl rövid vagy nem jött létre piszkozat, visszatérünk vele
     if not draft_response or len(draft_response.strip()) < 30:
         return draft_response
 
@@ -473,15 +466,14 @@ Te egy szigorú, kíméletlen TÉNYELLENŐRZŐ ÉS LOGIKAI KRITIKUS (Fact-Checke
 A feladatod, hogy átvizsgáld az AI által generált válasz-piszkozatot, és kijavítsd annak esetleges hibáit.
 
 ELLENŐRZÉSI SZEMPONTOK:
-1. **Ténybeli pontosság & Hallucináció:** A piszkozat tartalmaz-e olyan állítást, évszámot vagy adatot, ami ellentmond a megadott kontextusnak vagy a valóságnak? Ha igen, korrigáld!
-2. **Logika & Kódolás:** Ha matematikai levezetés vagy programkód van a válaszban, van-e benne szintaktikai, logikai vagy számítási hiba?
-3. **Forráshivatkozások:** Helyesek-e a hivatkozási linkek ([1](URL))? Nem hivatkozik-e nem létező forrásra?
-4. **Hiánytalanság:** Teljes választ ad-e a felhasználó kérdésére?
+1. **Ténybeli pontosság & Hallucináció:** A piszkozat tartalmaz-e felesleges dátumot vagy olyan állítást, ami ellentmond a kontextusnak? Ha igen, töröld/javítsd!
+2. **Logika & Kódolás:** Van-e benne szintaktikai vagy logikai hiba?
+3. **Forráshivatkozások:** Helyesek-e a hivatkozási linkek?
 
 UTASÍTÁSOK A KIMENETHEZ:
-- Ha a piszkozat HIBÁTLAN és TÉNYALAPÚ, add vissza pontosan a piszkozat szövegét!
-- Ha HIBÁT vagy HALLUCINÁCIÓT találsz, írd át a szöveget a javított változatra!
-- A kimeneted KIZÁRÓLAG a végleges, kijavított válasz legyen (ne tegyél elé megjegyzést pl. "Íme a javított válasz:").
+- Ha a piszkozat HIBÁTLAN, add vissza pontosan a szövegét!
+- Ha dátumismétlést vagy hibát találsz, javítsd ki!
+- A kimeneted KIZÁRÓLAG a végleges válasz legyen.
 """
 
     verifier_user_prompt = f"""
@@ -497,17 +489,16 @@ GENERÁLT PISZKOZAT:
 """
 
     verified_response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", # Használhatsz "llama-3.1-8b-instant"-ot is, ha gyorsítani akarod
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": verifier_system_prompt},
             {"role": "user", "content": verifier_user_prompt}
         ],
-        temperature=0.0, 
+        temperature=0.0,
         max_tokens=3000
     ).choices[0].message.content
 
     return verified_response
-
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
