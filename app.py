@@ -496,12 +496,7 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
     return response.choices[0].message.content
 
 def generald_es_ellenorizd_a_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "") -> str:
-    """
-    2-lépcsős Önellenőrző (Self-Correction / Reflection) Generátor.
-    
-    1. Lépés: Llama-3.3-70b elkészíti az elsődleges válasz-piszkozatot.
-    2. Lépés: Egy szigorú Tényellenőrző / Kritikus Ágens ellenőrzi, kiszűri a hallucinációkat és javítja a hibákat.
-    """
+
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
 
