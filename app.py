@@ -432,51 +432,6 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 
     return "\n\n".join(kontextus_blokkok)
 
-
-def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = ""):
-    """
-    Többlépcsős (Chain-of-Thought) precíziós generálás.
-    """
-    most = datetime.datetime.now()
-    aktualis_datum = most.strftime("%Y. %B %d.")
-
-    system_prompt = f"""
-Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
-
-UTASÍTÁSOK A PONTOSSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
-1. **Időtudatosság (Háttérkontextus):** A mai dátum kizárólag a friss hírek és információk időbeli elhelyezésére szolgál: {aktualis_datum}. 
-   - NE említsd meg és NE ismételgesd a dátumot vagy az időt a válaszaidban, kivéve ha a felhasználó kifejezetten erre kérdez rá!
-
-2. **Gondolkodási folyamat (Chain-of-Thought):**
-   - Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust!
-   - Különítsd el az igazolt tényeket az esetleges ellentmondásoktól!
-   - Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre számolj/gondolkodj!
-
-3. **Források és Hivatkozások:**
-   - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
-   - Ha a kapott kontextus hiányos, de a kérdés általános műveltségi/logikai/kódolási jellegű, használd a saját, mély logikai tudásodat, de jelezd a bizonytalansági tényezőket!
-
-4. **Stílus:**
-   - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
-
-{doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
-
---- RENDELKEZÉSRE ÁLLÓ WEBES KERESÉSI KONTEXTUS ---
-{web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": felhasznalo_kerdese}
-        ],
-        temperature=0.1,  # Alacsony hőmérséklet a hallucinációk minimálisra csökkentéséhez
-        max_tokens=3000   # Bővített válaszhossz a részletes magyarázatokhoz
-    )
-
-    return response.choices[0].message.content
-
 def generald_es_ellenorizd_a_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "") -> str:
 
     most = datetime.datetime.now()
