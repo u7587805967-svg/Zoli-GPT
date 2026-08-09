@@ -2307,7 +2307,7 @@ with tab_chat:
                         ]
 
                         tool_messages = [
-                            {"role": "system", "content": "You are a smart assistant. Decide which tool (if any) is needed to fulfill the user request."},
+                            {"role": "system", "content": "You are a smart assistant. You MUST use native tool calling (function calling) to play music, plan routes, or search the web. NEVER output text tags like [PLAY_MUSIC: ...] in your response. Always call the corresponding tool function."},
                             {"role": "user", "content": user_input}
                         ]
 
@@ -2324,7 +2324,7 @@ with tab_chat:
                             response_message = response.choices[0].message
                             tool_calls = response_message.tool_calls
                             
-                            # 3. Ha a modell használni akar egy eszközt
+                            # 3. Ha a modell natívan használni akar egy eszközt
                             if tool_calls:
                                 for tool_call in tool_calls:
                                     function_name = tool_call.function.name
@@ -2354,9 +2354,7 @@ with tab_chat:
                                     elif function_name == "search_music":
                                         agent_status.update(label="🎵 Zene keresése a YouTube-on...")
                                         try:
-                                            # Megkeressük a zenét a YouTube-on DuckDuckGo segítségével
                                             from duckduckgo_search import DDGS
-                                            
                                             query_to_search = f"{search_query} site:youtube.com/watch"
                                             video_url = None
                                             video_title = search_query
@@ -2373,12 +2371,10 @@ with tab_chat:
                                             if video_url:
                                                 context_addition += f"\n\nLEJÁTSZOTT ZENE LINKJE: {video_url} (Cím: {video_title})"
                                                 agent_status.write(f"✅ Zene megtalálva: {video_title}")
-                                                # Azonnal megjelenítjük a Streamlit videó lejátszót
                                                 st.video(video_url)
                                                 st.success(f"🎶 Lejátszás: **{video_title}**")
                                             else:
                                                 agent_status.write("⚠️ Nem találtam megfelelő YouTube videót ehhez a zenéhez.")
-                                                context_addition += f"\n\nZENEKERESÉSI HIBA: Nem találtam videót a következőhöz: {search_query}"
                                                 
                                         except Exception as music_err:
                                             agent_status.write(f"⚠️ Hiba a zene keresése közben: {music_err}")
