@@ -7,43 +7,41 @@ import asyncio
 import time
 import base64
 import pytz
-import sqlite3
 import urllib.parse
 import hashlib
 import secrets 
+import json
+import math
+import re
+import concurrent.futures
+import numpy as np
 import pandas as pd
+import requests
+import httpx
+from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from contextlib import contextmanager
-from streamlit_mic_recorder import mic_recorder
-from duckduckgo_search import DDGS
 from PIL import Image
 from pypdf import PdfReader
 import docx
 from docx import Document
 from groq import Groq
 import streamlit.components.v1 as components
-import requests
-import concurrent.futures
 from googlesearch import search as google_search
-import requests
+from duckduckgo_search import DDGS
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
-from sentence_transformers import CrossEncoder
-import re
-import json
-import concurrent.futures
-import numpy as np
-import math
-import datetime
-import concurrent.futures
-import httpx
-from bs4 import BeautifulSoup
-import datetime
-import math
-import urllib.parse
-import concurrent.futures
-from duckduckgo_search import DDGS
-from sentence_transformers import SentenceTransformer
+from streamlit_mic_recorder import mic_recorder
+
+# Reranker modell betöltése (Gyors, pontos újra-rangsorolás)
+@st.cache_resource
+def get_reranker_model():
+    return CrossEncoder('BAAI/bge-reranker-v2-m3')
+
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 class AsyncSQLiteHandler:
     """
@@ -785,8 +783,11 @@ class DatabaseRepository:
             # ÚJ: Biztonsági só (salt) oszlop hozzáadása a meglévő adatbázishoz
             try: cursor.execute("ALTER TABLE users ADD COLUMN salt TEXT")
             except sqlite3.OperationalError: pass
-            
+
+            cursor.execute('''CREATE TABLE IF NOT EXISTS user_memories 
+                            (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, memory_text TEXT, timestamp TEXT)''')
             conn.commit()
+            
 
     def save_memory(self, username: str, memory_text: str):
         with self._get_connection() as conn:
