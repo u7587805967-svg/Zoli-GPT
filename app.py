@@ -755,8 +755,6 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         "lng": dest_lng
     })
 
-    # FONTOS: A nyitó és záró hármas idézőjelek (TRIPLE QUOTES) garantálják,
-    # hogy a CSS és JS kód szövegként menjen át!
     html_code = f"""
     <!DOCTYPE html>
     <html>
