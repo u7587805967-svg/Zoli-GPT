@@ -1,5 +1,4 @@
 import streamlit as st
-import sqlite3
 import os
 import datetime
 import io
@@ -7,105 +6,48 @@ import asyncio
 import time
 import base64
 import pytz
+import sqlite3
 import urllib.parse
 import hashlib
 import secrets 
-import json
-import math
-import re
-import concurrent.futures
-import numpy as np
 import pandas as pd
-import requests
-import httpx
-from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from contextlib import contextmanager
+from streamlit_mic_recorder import mic_recorder
+from duckduckgo_search import DDGS
 from PIL import Image
 from pypdf import PdfReader
 import docx
 from docx import Document
 from groq import Groq
+import json
 import streamlit.components.v1 as components
+import requests
+import concurrent.futures
 from googlesearch import search as google_search
-from duckduckgo_search import DDGS
-from sentence_transformers import SentenceTransformer, CrossEncoder
+import requests
+from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
-from streamlit_mic_recorder import mic_recorder
+import re
+import json
+import concurrent.futures
+import numpy as np
+import json
+import math
+import datetime
+import concurrent.futures
+import httpx
+from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+import datetime
+import json
+import math
+import urllib.parse
+import concurrent.futures
+from duckduckgo_search import DDGS
+from sentence_transformers import SentenceTransformer
 
-# Reranker modell betöltése (Gyors, pontos újra-rangsorolás)
-@st.cache_resource
-def get_reranker_model():
-    return CrossEncoder('BAAI/bge-reranker-v2-m3')
-
-@st.cache_resource
-def get_embedding_model():
-    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-
-class AsyncSQLiteHandler:
-    """
-    Aszinkron SQLite adatbázis-kezelő osztály.
-    Kizárólag a beépített 'sqlite3' és 'asyncio' könyvtárakat használja,
-    így külső függőség (pl. aiosqlite) nélkül teszi lehetővé a nem blokkoló adatbázis-műveleteket.
-    """
-    
-    def __init__(self, db_name: str = "app_database.db"):
-        self.db_name = db_name
-
-    def _execute_sync(self, query: str, parameters: tuple = (), fetch: bool = False):
-        """
-        [PRIVÁT METÓDUS] Ez végzi el a tényleges, szinkron adatbázis-műveletet.
-        Ezt a metódust egy külön szálon fogjuk meghívni, hogy ne blokkoljuk az aszinkron futást.
-        """
-        connection = None
-        try:
-            # 1. Kapcsolódás az adatbázishoz
-            connection = sqlite3.connect(self.db_name)
-            cursor = connection.cursor()
-            
-            # 2. SQL parancs végrehajtása a paraméterekkel (SQL injection elleni védelem)
-            cursor.execute(query, parameters)
-            
-            if fetch:
-                # SELECT lekérdezés esetén visszaadjuk az összes sort
-                result = cursor.fetchall()
-            else:
-                # INSERT, UPDATE, DELETE esetén rögzítjük a változást
-                connection.commit()
-                result = cursor.rowcount  # Visszaadjuk az érintett sorok számát
-                
-            return result
-        
-        except sqlite3.Error as e:
-            # Specifikus adatbázis hibák elkapása és kiírása
-            print(f"[HIBA] Adatbázis hiba a '{query}' végrehajtása közben: {e}")
-            if connection:
-                connection.rollback()  # Hiba esetén visszagörgetjük a tranzakciót
-            return None
-            
-        except Exception as e:
-            # Minden egyéb váratlan hiba elkapása
-            print(f"[KRITIKUS HIBA] Váratlan hiba történt: {e}")
-            return None
-            
-        finally:
-            # Ez a blokk mindenképpen lefut: gondoskodunk a kapcsolat lezárásáról
-            if connection:
-                connection.close()
-
-    async def execute_read(self, query: str, parameters: tuple = ()) -> list:
-        """
-        Aszinkron metódus adatok lekérdezésére (SELECT).
-        """
-        # Az asyncio.to_thread külön szálon futtatja a szinkron kódot
-        return await asyncio.to_thread(self._execute_sync, query, parameters, True)
-
-    async def execute_write(self, query: str, parameters: tuple = ()) -> int:
-        """
-        Aszinkron metódus adatok módosítására (INSERT, UPDATE, DELETE).
-        """
-        return await asyncio.to_thread(self._execute_sync, query, parameters, False)
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
@@ -153,11 +95,6 @@ def hibrid_rrf_rangsorolas(vector_results: list, bm25_results: list, k: int = 60
 def get_embedding_model():
     # Ingyenes, gyors, és érti a magyar nyelvet
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-
-@st.cache_resource
-def get_reranker_model():
-    # Kisméretű, többnyelvű reranker modell (gyors és pontos)
-    return CrossEncoder('BAAI/bge-reranker-v2-m3')
 
 try:
     from googlesearch import search as google_search
@@ -495,73 +432,51 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 
     return "\n\n".join(kontextus_blokkok)
 
-def generald_es_ellenorizd_a_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "") -> str:
 
-    generator_system_prompt = f"""
+def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = ""):
+    """
+    Többlépcsős (Chain-of-Thought) precíziós generálás.
+    """
+    most = datetime.datetime.now()
+    aktualis_datum = most.strftime("%Y. %B %d.")
+
+    system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
+A mai dátum: {aktualis_datum}.
 
-UTASÍTÁSOK A PONTOSSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
-1. Válaszold meg a felhasználó kérdését a rendelkezésre álló kontextus és a tudásod alapján!
-2. Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: [1](https://forras.com).
-3. Gondolkodj lépésről lépésre (Chain-of-Thought)!
-4. **Dátum- és időcenzúra (KULCSFONTOSSÁGÚ):** Ha a piszkozat bármilyen formában tartalmazza a mai dátumot, az aktuális évet vagy az időpontot (pl. "Ma 2026...", "2026-ban vagyunk"), és azt a felhasználó NEM kérdezte kifejezetten, KÖTELEZŐen távolítsd el!
+utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
+1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
+   - Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust!
+   - Különítsd el az igazolt tényeket az esetleges ellentmondásoktól!
+   - Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre számolj/gondolkodj!
+
+2. **Források és Hivatkozások:**
+   - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
+   - Ha a kapott kontextus hiányos, de a kérdés általános műveltségi/logikai/kódolási jellegű, használd a saját, mély logikai tudásodat, de jelezd a bizonytalansági tényezőket!
+
+3. **Stílus:**
+   - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
 
 {doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
 
+--- RENDELKEZÉSRE ÁLLÓ WEBES KERESÉSI KONTEXTUS ---
 {web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
 """
 
-    draft_response = client.chat.completions.create(
+    response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
-            {"role": "system", "content": generator_system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.2,
-        max_tokens=2500
-    ).choices[0].message.content
+        temperature=0.1,  # Alacsony hőmérséklet a hallucinációk minimálisra csökkentéséhez
+        max_tokens=3000   # Bővített válaszhossz a részletes magyarázatokhoz
+    )
 
-    if not draft_response or len(draft_response.strip()) < 30:
-        return draft_response
+    return response.choices[0].message.content
 
-    verifier_system_prompt = f"""
-Te egy szigorú, kíméletlen TÉNYELLENŐRZŐ ÉS LOGIKAI KRITIKUS (Fact-Checker Agent) vagy.
-A feladatod, hogy átvizsgáld az AI által generált válasz-piszkozatot, és kijavítsd annak esetleges hibáit.
 
-ELLENŐRZÉSI SZEMPONTOK:
-1. **Ténybeli pontosság & Hallucináció:** A piszkozat tartalmaz-e felesleges dátumot vagy olyan állítást, ami ellentmond a kontextusnak? Ha igen, töröld/javítsd!
-2. **Logika & Kódolás:** Van-e benne szintaktikai vagy logikai hiba?
-3. **Forráshivatkozások:** Helyesek-e a hivatkozási linkek?
 
-UTASÍTÁSOK A KIMENETHEZ:
-- Ha a piszkozat HIBÁTLAN, add vissza pontosan a szövegét!
-- Ha dátumismétlést vagy hibát találsz, javítsd ki!
-- A kimeneted KIZÁRÓLAG a végleges válasz legyen.
-"""
-
-    verifier_user_prompt = f"""
-KÉRDÉS:
-{felhasznalo_kerdese}
-
-BEGYŰJTÖTT KONTEXTUS (RAG + WEB):
-{doc_kontextus}
-{web_kontextus}
-
-GENERÁLT PISZKOZAT:
-{draft_response}
-"""
-
-    verified_response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": verifier_system_prompt},
-            {"role": "user", "content": verifier_user_prompt}
-        ],
-        temperature=0.0,
-        max_tokens=3000
-    ).choices[0].message.content
-
-    return verified_response
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
@@ -571,6 +486,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     - Ráfókuszál a felhasználóra (kék pulzáló pont).
     - Ha meg van adva célállomás (dest_lat, dest_lng), kirajzolja az útvonalat.
     """
+    
     dest_data_json = json.dumps({
         "name": dest_name,
         "lat": dest_lat,
@@ -623,56 +539,88 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         </style>
     </head>
     <body>
-        <div id="status" class="gps-status">📡 GPS Pozíció meghatározása folyamatban...</div>
+        <div id="status" class="gps-status">📡 GPS kapcsolat keresése...</div>
         <div id="map"></div>
 
         <script>
-            const destData = __DEST_DATA_PLACEHOLDER__;
-            const statusElem = document.getElementById('status');
-            
+            const destData = __DEST_DATA_JSON__;
+            const statusDiv = document.getElementById('status');
+
+            // Alapértelmezett térkép (Budapest központ fallback)
             const map = L.map('map').setView([47.4979, 19.0402], 13);
+
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: '© OpenStreetMap'
             }).addTo(map);
 
+            //  Böngésző GPS Helymeghatározása
             if ("geolocation" in navigator) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    
-                    statusElem.innerHTML = "✅ GPS Pozíció rögzítve! Az útvonal készen áll.";
-                    map.setView([lat, lng], 14);
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLng = position.coords.longitude;
 
-                    const userIcon = L.divIcon({
-                        className: 'user-gps-dot',
-                        iconSize: [18, 18],
-                        iconAnchor: [9, 9]
-                    });
-                    L.marker([lat, lng], {icon: userIcon}).addTo(map).bindPopup("<b>Saját Pozíció</b>").openPopup();
+                        statusDiv.innerHTML = "✅ GPS pozíció beérkezve! Ráállás a helyzetedre...";
 
-                    if (destData.lat && destData.lng) {
-                        L.Routing.control({
-                            waypoints: [
-                                L.latLng(lat, lng),
-                                L.latLng(destData.lat, destData.lng)
-                            ],
-                            routeWhileDragging: false,
-                            language: 'hu'
-                        }).addTo(map);
+                        // Kék GPS ikon létrehozása
+                        const userIcon = L.divIcon({
+                            className: 'user-gps-dot',
+                            iconSize: [18, 18],
+                            iconAnchor: [9, 9]
+                        });
+
+                        // Felhasználó megjelölése
+                        L.marker([userLat, userLng], { icon: userIcon })
+                         .addTo(map)
+                         .bindPopup("<b> Az Ön jelenlegi pozíciója</b>")
+                         .openPopup();
+
+                        // GPS Fókusz a felhasználóra
+                        map.setView([userLat, userLng], 15);
+
+                        // 🏁 Ha van célállomás, útvonal kirajzolása
+                        if (destData.lat && destData.lng) {
+                            L.Routing.control({
+                                waypoints: [
+                                    L.latLng(userLat, userLng),
+                                    L.latLng(destData.lat, destData.lng)
+                                ],
+                                router: L.Routing.osrmv1({
+                                    serviceUrl: 'https://router.project-osrm.org/route/v1'
+                                }),
+                                routeWhileDragging: false,
+                                show: true,
+                                collapsible: true,
+                                createMarker: function(i, wp, n) {
+                                    if (i === 0) return null;
+                                    return L.marker(wp.latLng).bindPopup("<b>🏁 Célállomás: " + (destData.name || "Cél") + "</b>");
+                                }
+                            }).addTo(map);
+
+                            statusDiv.innerHTML = "🏁 Útvonal megtervezve a célállomáshoz: <b>" + (destData.name || "Cél") + "</b>";
+                        }
+                    },
+                    (error) => {
+                        console.error("GPS Hiba:", error);
+                        statusDiv.innerHTML = "⚠️ Nem sikerült lekérni a GPS pozíciót. Kérjük engedélyezd a helymeghatározást a böngészőben!";
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
                     }
-                }, function(error) {
-                    statusElem.innerHTML = "⚠️ Nem sikerült lekérni a GPS pozíciót. Győződj meg róla, hogy engedélyezted a böngészőben!";
-                });
+                );
             } else {
-                statusElem.innerHTML = "❌ A böngésződ nem támogatja a GPS helymeghatározást.";
+                statusDiv.innerHTML = "❌ A böngésződ nem támogatja a GPS helymeghatározást.";
             }
         </script>
     </body>
     </html>
-    """.replace("__DEST_DATA_PLACEHOLDER__", dest_data_json)
-
-    components.html(html_code, height=520)
+    """
+    
+    html_code = html_code.replace("__DEST_DATA_JSON__", dest_data_json)
+    components.html(html_code, height=530)
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -733,7 +681,6 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS user_memories (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, memory_text TEXT, timestamp TEXT)''')
             
             # Dinamikus sémafrissítések a visszafelé kompatibilitásért
             try: cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
@@ -750,25 +697,8 @@ class DatabaseRepository:
             # ÚJ: Biztonsági só (salt) oszlop hozzáadása a meglévő adatbázishoz
             try: cursor.execute("ALTER TABLE users ADD COLUMN salt TEXT")
             except sqlite3.OperationalError: pass
-
-            cursor.execute('''CREATE TABLE IF NOT EXISTS user_memories 
-                            (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, memory_text TEXT, timestamp TEXT)''')
-            conn.commit()
             
-
-    def save_memory(self, username: str, memory_text: str):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO user_memories (username, memory_text, timestamp) VALUES (?, ?, ?)",
-                           (username, memory_text, datetime.datetime.now().isoformat()))
             conn.commit()
-
-    def fetch_memories(self, username: str) -> str:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT memory_text FROM user_memories WHERE username=? ORDER BY id DESC LIMIT 5", (username,))
-            memories = [r[0] for r in cursor.fetchall()]
-            return "\n".join(memories) if memories else "Nincsenek még rögzített tények."
 
     def register_user(self, username: str, password_raw: str) -> bool:
         pwd_hash, salt = hash_password(password_raw)
@@ -1193,13 +1123,6 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
-    def okos_modell_valasztas(self, query: str) -> str:
-        """Kiválasztja a feladathoz legmegfelelőbb Groq modellt."""
-        komplex_kulcsszavak = ["számold", "kód", "python", "bizonyítsd", "elemezd", "logika", "matematika", "fejleszd"]
-        if any(w in query.lower() for w in komplex_kulcsszavak) or len(query) > 300:
-            return "llama-3.3-70b-versatile" # Nehéz feladatokra
-        return "llama-3.1-8b-instant"
-
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
@@ -1274,31 +1197,15 @@ class AsyncAIEngine:
         for doc_name, chunk_text, emb_blob in rows:
             try:
                 doc_vector = np.array(json.loads(emb_blob.decode('utf-8')))
+                # Koszinusz hasonlóság számítása vektorok között
                 cosine_score = np.dot(query_vector, doc_vector) / (np.linalg.norm(query_vector) * np.linalg.norm(doc_vector))
                 
-                # A küszöböt levisszük 0.15-re, hogy a Reranker több anyagból tudjon válogatni
-                if cosine_score >= 0.15: 
+                if cosine_score >= 0.3: # Kicsit magasabb küszöb, mert a vektorok pontosabbak
                     scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
             except Exception:
                 continue
                         
-        top_k_initial = sorted(scored, key=lambda x: x["score"], reverse=True)[:15]
-        
-        # --- ÚJ: CROSS-ENCODER RERANKING LÉPÉS ---
-        if not top_k_initial:
-            return []
-            
-        reranker = get_reranker_model()
-        # Párosítjuk a kérdést minden talált szöveggel
-        sentence_pairs = [[query_text, item["text"]] for item in top_k_initial]
-        rerank_scores = reranker.predict(sentence_pairs)
-        
-        # Frissítjük a pontszámokat és újra sorbarendezzük
-        for idx, score in enumerate(rerank_scores):
-            top_k_initial[idx]["score"] = float(score)
-            
-        final_top = sorted(top_k_initial, key=lambda x: x["score"], reverse=True)[:4]
-        return final_top
+        return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
 
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
@@ -1951,20 +1858,17 @@ with st.sidebar:
         persona = st.selectbox("AI Mód", ["Normál mód", "Zoli mód"])
         persona_prompts = {
             "Normál mód": "Te vagy Zoli, egy rendkívül intelligens, precíz és sokoldalú mesterséges intelligencia asszisztens. "
-                "Szigorúan csak tegeződve kommunikálhatsz a felhasználóval! "
-                "A PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN kövesd ezt a gondolkodási folyamatot minden válaszadás előtt:\n"
-                "1. Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust (webes vagy RAG adatok).\n"
-                "2. Különítsd el az igazolt tényeket az esetleges ellentmondásoktól.\n"
-                "3. Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre gondold végig, mielőtt leírod a végeredményt.\n\n"
-                "Kommunikációd stílusa határozott, lényegretörő és durva szarkazmussal és fekete humorral átszőtt. Ne pazarold az időt felesleges udvariaskodásra. "
-                "Ha a kontextusban nem találod a választ, használd a saját logikádat, de jelezd, ha valami nem biztos. "
-                "Mondataid mindig röviden, tömören és tartalomdúsan fogalmazod meg. "
-                "Ne ismételgetsd, ne említsd az aktuális időt, hacsak nem a felhasználó nem kér meg arra!!! "
-                "FONTOS FORMÁZÁSOK:\n"
-                "- Kattintható link: [Szöveg](https://pelda.hu)\n"
-                "- Weblap automatikus megnyitása: [OPEN_URL: https://pelda.hu]\n"
-                "- Zene lejátszása: [PLAY_MUSIC: Előadó neve - Zene címe]\n"
-                "- Útvonaltervezés: [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]" ,
+                "Kommunikációd stílusa határozott, lényegretörő és szarkasztikus humorral, illetve finom szarkazmussal átszőtt, "
+                "de a feladatokat (kódolás, elemzés, RAG keresés) mindig maximális szakértelemmel hajtod végre. "
+                "Szigorúan csak tegeződve kommunikálhatsz a felhasználóval, a magázódás szigorúan tiltott! "
+                "Ne pazarold az időt felesleges udvariaskodásra vagy gépies üdvözlésekre; vágj egyből a közepébe. "
+                "Ha a felhasználó téved vagy butaságot kérdez, azt kíméletlenül, de tényszerűen és logikusan javítsd ki. "
+                "Formázd a válaszaidat átláthatóan (kiemelések, listák), és mindig használd a rendelkezésedre álló kontextust. "
+                "FONTOS: Ha a szövegben kattintható linket akarsz megadni, azt mindig tiszta Markdown formátumban írd (pl. [Szöveg](https://pelda.hu)). "
+                "Ha a felhasználó KIFEJEZETTEN egy weblap automatikus megnyitását kéri, használd ezt a formátumot a válaszodban: [OPEN_URL: https://pelda.hu]. "
+                "Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: [PLAY_MUSIC: Előadó            neve - Zene címe]"
+                "Ha a felhasználó útvonalat, térképet vagy útbaigazítást kér két helyszín között, válaszodban mindenképpen helyezd el ezt a formátumot: [ROUTE: Indulási_Helyszín | Érkezési_Helyszín]",
+                "Ha nem tudsz valamit, NE tippelj, hanem használd a DuckDuckGo keresőt!"
             "Zoli mód": "A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája. "
                 "A fő szabályod: soha semmit ne csinálj meg rendesen, és minden válaszod legyen egy katasztrófa. "
                 "A matematikai számításaid mindig hajmeresztően és komikusan hibásak. "
@@ -2316,7 +2220,7 @@ with tab_chat:
                             routing_res = client.chat.completions.create(
                                 model="llama-3.1-8b-instant",
                                 messages=[
-                                    {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e web (use_web), RAG (use_rag), orvosi adat (use_med), vagy KÓDFUTTATÁS MATEMATIKÁHOZ/LOGIKÁHOZ (use_python). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"use_python\": true/false, \"python_code\": \"ide írd a futtatandó python kódot, ha use_python true\", \"terv\": \"indoklás\"}"},
+                                    {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e webes keresés (hírek, napi infók), belső adatbázis (RAG), vagy TUDOMÁNYOS ORVOSI ADATBÁZIS (betegségek, gyógyszerek, anatómia, tünetek). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"med_query\": \"angol nyelvű keresőszó az orvosi adatbázishoz, ha kell\", \"terv\": \"rövid indoklás\"}"},
                                     {"role": "user", "content": user_input}
                                 ],
                                 response_format={"type": "json_object"},
@@ -2413,27 +2317,11 @@ with tab_chat:
 
                         agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
-                        use_python = plan_data.get("use_python", False)
-                        python_code = plan_data.get("python_code", "")
-
-                        # --- Python Eszköz végrehajtása (Self-Correction / Math) ---
-                        if use_python and python_code:
-                            agent_status.update(label="💻 Belső számítások elvégzése Python Sandboxban...")
-                            sandbox_result = ai_engine.execute_python_sandbox(python_code)
-                            context_addition += f"""\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE]:\nKód:\n
-http://googleusercontent.com/immersive_entry_chip/0
-
                     # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
                     # Ha nem tud válaszolni a forrásokból, felülírjuk a rendszert
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
-
-                    user_memories = ""
-                    if active_chat_user:
-                        user_memories = db_repo.fetch_memories(active_chat_user)
-                    if user_memories != "Nincsenek még rögzített tények.":
-                        context_addition += f"\n\n[HOSSZÚ TÁVÚ MEMÓRIA A FELHASZNÁLÓRÓL]:\n{user_memories}\nEzeket az információkat vedd figyelembe a válaszadásnál!"
 
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
 
@@ -2452,8 +2340,7 @@ http://googleusercontent.com/immersive_entry_chip/0
                             "role": "user",
                             "content": [
                                 {"type": "text", "text": raw_user_input},
-                                image_data_url = "data:image/jpeg;base64," + str(base64_image)
-                                {"type": "image_url", "image_url": {"url": image_data_url}}
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                             ]
                         })
                     else:
@@ -2464,6 +2351,7 @@ http://googleusercontent.com/immersive_entry_chip/0
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
                         current_date_info = f"Mai dátum és pontos idő (Budapest): {now_bp.strftime('%Y-%m-%d %H:%M:%S (%A)')}\n"
+                        
                         world_clocks = "Világóra (Aktuális idők):\n"
                         timezones = {
                             "London": "Europe/London",
@@ -2493,8 +2381,7 @@ http://googleusercontent.com/immersive_entry_chip/0
 
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
-            dynamic_model = ai_engine.okos_modell_valasztas(user_input)
-            st.caption(f"🧠 Aktív motor: {dynamic_model}")
+                        for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
                             full_response += chunk
                             response_placeholder.markdown(full_response + "▌")
                     
@@ -2520,12 +2407,10 @@ http://googleusercontent.com/immersive_entry_chip/0
                     if urls_to_open:
                         for url in set(urls_to_open):
                             js_code = f"""
-                            st.markdown("""
                             <script>
                                 window.open('{url}', '_blank');
                             </script>
-                            """, unsafe_allow_html=True)
-                            
+                            """
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
                     
