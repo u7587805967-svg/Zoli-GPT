@@ -2518,10 +2518,12 @@ http://googleusercontent.com/immersive_entry_chip/0
                     if urls_to_open:
                         for url in set(urls_to_open):
                             js_code = f"""
+                            st.markdown("""
                             <script>
                                 window.open('{url}', '_blank');
                             </script>
-                            """
+                            """, unsafe_allow_html=True)
+                            
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
                     
