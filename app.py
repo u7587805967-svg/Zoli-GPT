@@ -2452,10 +2452,9 @@ with tab_chat:
                         # --- Python Eszköz végrehajtása (Self-Correction / Math) ---
                         if use_python and python_code:
                             agent_status.update(label="💻 Belső számítások elvégzése Python Sandboxban...")
-                            # Itt futtatja le magának a számítást, mielőtt válaszolna neked
                             sandbox_result = ai_engine.execute_python_sandbox(python_code)
-                            context_addition += f"\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE A PONTOS VÁLASZHOZ]:\nKód:\n
-http://googleusercontent.com/immersive_entry_chip/1
+                            context_addition += f"\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE]:\nKód:\n
+http://googleusercontent.com/immersive_entry_chip/0
 
                     # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
