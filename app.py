@@ -714,6 +714,7 @@ Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
         print(f"HyDE generálási hiba: {e}")
 
     return [felhasznalo_kerdese]
+
 def szamitas_detektalas_es_futtatas(client, query: str, execute_sandbox_fn) -> str:
     """
     5. PONT: Automatikus kódgenerálás és végrehajtás matematikai/adatfeldolgozási kérdéseknél.
