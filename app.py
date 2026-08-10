@@ -30,6 +30,7 @@ import requests
 from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
+from sentence_transformers import CrossEncoder
 import re
 import json
 import concurrent.futures
@@ -113,34 +114,6 @@ class AsyncSQLiteHandler:
         """
         return await asyncio.to_thread(self._execute_sync, query, parameters, False)
 
-async def main():
-    db = AsyncSQLiteHandler("test.db")
-    
-    # 1. Tábla létrehozása (Írási művelet)
-    create_table_query = """
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        age INTEGER
-    )
-    """
-    await db.execute_write(create_table_query)
-    
-    # 2. Adat beszúrása (Írási művelet paraméterekkel)
-    insert_query = "INSERT INTO users (name, age) VALUES (?, ?)"
-    await db.execute_write(insert_query, ("Teszt Elek", 30))
-    
-    # 3. Adat lekérdezése (Olvasási művelet)
-    select_query = "SELECT * FROM users WHERE age >= ?"
-    results = await db.execute_read(select_query, (18,))
-    
-    print("Lekérdezés eredménye:", results)
-
-# Ha a scriptet közvetlenül futtatják
-if __name__ == "__main__":
-    asyncio.run(main())
-
-
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
     Kiszűri a magyar ragokat és toldalékokat a pontosabb kulcsszó-egyeztetéshez.
@@ -187,6 +160,11 @@ def hibrid_rrf_rangsorolas(vector_results: list, bm25_results: list, k: int = 60
 def get_embedding_model():
     # Ingyenes, gyors, és érti a magyar nyelvet
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+@st.cache_resource
+def get_reranker_model():
+    # Kisméretű, többnyelvű reranker modell (gyors és pontos)
+    return CrossEncoder('BAAI/bge-reranker-v2-m3')
 
 try:
     from googlesearch import search as google_search
@@ -795,6 +773,7 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS latency_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, duration REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS user_memories (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, memory_text TEXT, timestamp TEXT)''')
             
             # Dinamikus sémafrissítések a visszafelé kompatibilitásért
             try: cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
@@ -813,6 +792,20 @@ class DatabaseRepository:
             except sqlite3.OperationalError: pass
             
             conn.commit()
+
+    def save_memory(self, username: str, memory_text: str):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO user_memories (username, memory_text, timestamp) VALUES (?, ?, ?)",
+                           (username, memory_text, datetime.datetime.now().isoformat()))
+            conn.commit()
+
+    def fetch_memories(self, username: str) -> str:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT memory_text FROM user_memories WHERE username=? ORDER BY id DESC LIMIT 5", (username,))
+            memories = [r[0] for r in cursor.fetchall()]
+            return "\n".join(memories) if memories else "Nincsenek még rögzített tények."
 
     def register_user(self, username: str, password_raw: str) -> bool:
         pwd_hash, salt = hash_password(password_raw)
@@ -1237,6 +1230,13 @@ class AsyncAIEngine:
     def get_available_models() -> list:
         return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
+    def okos_modell_valasztas(self, query: str) -> str:
+        """Kiválasztja a feladathoz legmegfelelőbb Groq modellt."""
+        komplex_kulcsszavak = ["számold", "kód", "python", "bizonyítsd", "elemezd", "logika", "matematika", "fejleszd"]
+        if any(w in query.lower() for w in komplex_kulcsszavak) or len(query) > 300:
+            return "llama-3.3-70b-versatile" # Nehéz feladatokra
+        return "llama-3.1-8b-instant"
+
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
         words = [w for w in cleaned.split() if w not in self.config.HUNGARIAN_STOPWORDS]
@@ -1311,15 +1311,31 @@ class AsyncAIEngine:
         for doc_name, chunk_text, emb_blob in rows:
             try:
                 doc_vector = np.array(json.loads(emb_blob.decode('utf-8')))
-                # Koszinusz hasonlóság számítása vektorok között
                 cosine_score = np.dot(query_vector, doc_vector) / (np.linalg.norm(query_vector) * np.linalg.norm(doc_vector))
                 
-                if cosine_score >= 0.3: # Kicsit magasabb küszöb, mert a vektorok pontosabbak
+                # A küszöböt levisszük 0.15-re, hogy a Reranker több anyagból tudjon válogatni
+                if cosine_score >= 0.15: 
                     scored.append({"text": chunk_text, "score": float(cosine_score), "source": doc_name})
             except Exception:
                 continue
                         
-        return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
+        top_k_initial = sorted(scored, key=lambda x: x["score"], reverse=True)[:15]
+        
+        # --- ÚJ: CROSS-ENCODER RERANKING LÉPÉS ---
+        if not top_k_initial:
+            return []
+            
+        reranker = get_reranker_model()
+        # Párosítjuk a kérdést minden talált szöveggel
+        sentence_pairs = [[query_text, item["text"]] for item in top_k_initial]
+        rerank_scores = reranker.predict(sentence_pairs)
+        
+        # Frissítjük a pontszámokat és újra sorbarendezzük
+        for idx, score in enumerate(rerank_scores):
+            top_k_initial[idx]["score"] = float(score)
+            
+        final_top = sorted(top_k_initial, key=lambda x: x["score"], reverse=True)[:4]
+        return final_top
 
     def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
         if not GROQ_API_KEY:
@@ -2337,7 +2353,7 @@ with tab_chat:
                             routing_res = client.chat.completions.create(
                                 model="llama-3.1-8b-instant",
                                 messages=[
-                                    {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e webes keresés (hírek, napi infók), belső adatbázis (RAG), vagy TUDOMÁNYOS ORVOSI ADATBÁZIS (betegségek, gyógyszerek, anatómia, tünetek). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"med_query\": \"angol nyelvű keresőszó az orvosi adatbázishoz, ha kell\", \"terv\": \"rövid indoklás\"}"},
+                                    {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e web (use_web), RAG (use_rag), orvosi adat (use_med), vagy KÓDFUTTATÁS MATEMATIKÁHOZ/LOGIKÁHOZ (use_python). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"use_python\": true/false, \"python_code\": \"ide írd a futtatandó python kódot, ha use_python true\", \"terv\": \"indoklás\"}"},
                                     {"role": "user", "content": user_input}
                                 ],
                                 response_format={"type": "json_object"},
@@ -2434,11 +2450,26 @@ with tab_chat:
 
                         agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
+                        use_python = plan_data.get("use_python", False)
+                        python_code = plan_data.get("python_code", "")
+
+                        # --- Python Eszköz végrehajtása (Self-Correction / Math) ---
+                        if use_python and python_code:
+                            agent_status.update(label="💻 Belső számítások elvégzése Python Sandboxban...")
+                            # Itt futtatja le magának a számítást, mielőtt válaszolna neked
+                            sandbox_result = ai_engine.execute_python_sandbox(python_code)
+                            context_addition += f"\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE A PONTOS VÁLASZHOZ]:\nKód:\n
+http://googleusercontent.com/immersive_entry_chip/0
+
                     # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
                     # Ha nem tud válaszolni a forrásokból, felülírjuk a rendszert
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
+
+                    user_memories = db_repo.fetch_memories(active_chat_user)
+                    if user_memories != "Nincsenek még rögzített tények.":
+                        context_addition += f"\n\n[HOSSZÚ TÁVÚ MEMÓRIA A FELHASZNÁLÓRÓL]:\n{user_memories}\nEzeket az információkat vedd figyelembe a válaszadásnál!"
 
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
 
@@ -2497,7 +2528,8 @@ with tab_chat:
 
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
-                        for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
+            dynamic_model = ai_engine.okos_modell_valasztas(user_input)
+            st.caption(f"🧠 Aktív motor: {dynamic_model}")
                             full_response += chunk
                             response_placeholder.markdown(full_response + "▌")
                     
