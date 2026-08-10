@@ -2429,7 +2429,9 @@ http://googleusercontent.com/immersive_entry_chip/0
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
 
-                    user_memories = db_repo.fetch_memories(active_chat_user)
+                    user_memories = ""
+                    if active_chat_user:
+                        user_memories = db_repo.fetch_memories(active_chat_user)
                     if user_memories != "Nincsenek még rögzített tények.":
                         context_addition += f"\n\n[HOSSZÚ TÁVÚ MEMÓRIA A FELHASZNÁLÓRÓL]:\n{user_memories}\nEzeket az információkat vedd figyelembe a válaszadásnál!"
 
