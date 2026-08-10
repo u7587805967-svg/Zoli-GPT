@@ -714,7 +714,6 @@ Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
         print(f"HyDE generálási hiba: {e}")
 
     return [felhasznalo_kerdese]
-
 def szamitas_detektalas_es_futtatas(client, query: str, execute_sandbox_fn) -> str:
     """
     5. PONT: Automatikus kódgenerálás és végrehajtás matematikai/adatfeldolgozási kérdéseknél.
@@ -743,7 +742,7 @@ Példa kimenet:
 ```python
 import math
 eredmeny = math.sqrt(144) * 2.5
-print(f"Eredmény: {{eredmeny}}")
+print(f"Eredmény: {eredmeny}")
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
@@ -756,6 +755,8 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         "lng": dest_lng
     })
 
+    # FONTOS: A nyitó és záró hármas idézőjelek (TRIPLE QUOTES) garantálják,
+    # hogy a CSS és JS kód szövegként menjen át!
     html_code = f"""
     <!DOCTYPE html>
     <html>
