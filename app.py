@@ -21,13 +21,11 @@ from pypdf import PdfReader
 import docx
 from docx import Document
 from groq import Groq
-import json
 import streamlit.components.v1 as components
 import requests
 import concurrent.futures
 from googlesearch import search as google_search
 import requests
-from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
 from sentence_transformers import CrossEncoder
@@ -35,15 +33,12 @@ import re
 import json
 import concurrent.futures
 import numpy as np
-import json
 import math
 import datetime
 import concurrent.futures
 import httpx
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 import datetime
-import json
 import math
 import urllib.parse
 import concurrent.futures
