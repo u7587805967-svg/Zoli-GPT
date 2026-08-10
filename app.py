@@ -2453,7 +2453,7 @@ with tab_chat:
                         if use_python and python_code:
                             agent_status.update(label="💻 Belső számítások elvégzése Python Sandboxban...")
                             sandbox_result = ai_engine.execute_python_sandbox(python_code)
-                            context_addition += f"\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE]:\nKód:\n
+                            context_addition += f"""\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE]:\nKód:\n
 http://googleusercontent.com/immersive_entry_chip/0
 
                     # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
