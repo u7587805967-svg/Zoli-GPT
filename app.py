@@ -591,6 +591,158 @@ GENERÁLT PISZKOZAT:
     ).choices[0].message.content
 
     return verified_response
+def agentic_reflection_loop(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "", model_name: str = "llama-3.3-70b-versatile") -> str:
+    """
+    2. PONT: 2-lépcsős Generátor -> Auditor -> Finomító hurok
+    """
+    kontextus = f"{doc_kontextus}\n\n{web_kontextus}".strip()
+    if not kontextus:
+        kontextus = "Nincs külső kontextus."
+
+    # 1. KÖR: Generálás (Drafting)
+    generator_prompt = f"""
+Te egy nagy pontosságú AI asszisztens vagy. Válaszold meg a kérdést a megadott kontextus alapján.
+Gondolkodj lépésről lépésre (Chain of Thought)!
+
+KONTEXTUS:
+{kontextus}
+
+KÉRDÉS:
+{felhasznalo_kerdese}
+"""
+    draft_response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": generator_prompt}],
+        temperature=0.2,
+        max_tokens=2000
+    ).choices[0].message.content
+
+    # 2. KÖR: Auditor (Self-Correction / Kritika)
+    auditor_prompt = f"""
+Te egy kíméletlen TÉNYELLENŐRZŐ AUDITOR (Fact-Checker Agent) vagy.
+Feladatod: Vizsgáld felül az alábbi AI válasz-piszkozatot a kontextus és a kérdés alapján!
+
+SZEMPOONTOK:
+1. TÉNYBELI PONTOSSÁG: Tartalmaz-e a piszkozat olyan állítást, amit a kontextus NEM támaszt alá?
+2. HALLUCINÁCIÓ & DÁTUMOK: Van-e benne kitalált évszám, téves dátum vagy hamis adat?
+3. LOGIKA: Helyesek-e a levont következtetések?
+
+Ha a piszkozat tökéletes, válaszold pontosan ezt: "OK"
+Ha hibát találsz, írd le részletesen a pontatlanságokat és a javítási utasításokat!
+
+KONTEXTUS:
+{kontextus}
+
+PISZKOZAT:
+{draft_response}
+"""
+    audit_result = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": auditor_prompt}],
+        temperature=0.0,
+        max_tokens=500
+    ).choices[0].message.content.strip()
+
+    # Ha az Auditor jóváhagyta, visszaadjuk a piszkozatot
+    if audit_result.upper() == "OK" or "OK" in audit_result.upper()[:10]:
+        return draft_response
+
+    # 3. KÖR: Finomítás (Refinement) az audit alapján
+    refiner_prompt = f"""
+A válasz-piszkozatodban az Auditor az alábbi hibákat állapította meg:
+{audit_result}
+
+Javítsd ki a hibákat, és készíts egy végleges, 100%-ban pontos választ!
+EREDETI PISZKOZAT:
+{draft_response}
+"""
+    final_response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": refiner_prompt}],
+        temperature=0.1,
+        max_tokens=2500
+    ).choices[0].message.content
+
+    return final_response
+
+def hyde_kereses_optimalizalas(client, felhasznalo_kerdese: str) -> list[str]:
+    """
+    3. PONT: Hypothetical Document Embeddings (HyDE) alapú keresési kifejezés generálás
+    """
+    most = datetime.datetime.now()
+    aktualis_ev = most.year
+
+    # 1. Hipotetikus dokumentum (ideális válasz) generálása
+    hyde_prompt = f"""
+Generálj egy rövid, 2-3 mondatos elméleti/szakmai mintaválaszt a következő kérdésre.
+Ne aggódj a ténybeli pontosságért, a cél a szakmai kifejezések és terminológia feltárása.
+
+Kérdés: {felhasznalo_kerdese}
+"""
+    try:
+        hypothetical_doc = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": hyde_prompt}],
+            temperature=0.5,
+            max_tokens=150
+        ).choices[0].message.content.strip()
+
+        # 2. Keresési kulcsszavak kinyerése a kérdés ÉS a hipotetikus dokumentum alapján
+        query_gen_prompt = f"""
+Ma {aktualis_ev}. év van.
+A felhasználó kérdése és a hipotetikus válasz alapján hozz létre pontosan 3 specifikus, keresőmotor-barát keresőkifejezést!
+
+Kérdés: {felhasznalo_kerdese}
+Hipotetikus válasz: {hypothetical_doc}
+
+Kizárólag egy érvényes JSON tömböt adj vissza stringekkel!
+Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
+"""
+        res = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": query_gen_prompt}],
+            temperature=0.1,
+            max_tokens=120
+        ).choices[0].message.content.strip()
+
+        match = re.search(r'\[.*\]', res, re.DOTALL)
+        if match:
+            queries = json.loads(match.group(0))
+            if isinstance(queries, list) and len(queries) > 0:
+                return queries[:3]
+    except Exception as e:
+        print(f"HyDE generálási hiba: {e}")
+
+    return [felhasznalo_kerdese]
+def szamitas_detektalas_es_futtatas(client, query: str, execute_sandbox_fn) -> str:
+    """
+    5. PONT: Automatikus kódgenerálás és végrehajtás matematikai/adatfeldolgozási kérdéseknél.
+    """
+    check_prompt = f"""
+A következő felhasználói kérdés igényel-e pontos matematikai számítást, dátum-kalkulációt, százalékszámítást vagy adatelemzést?
+Válaszolj kizárólag egyetlen szóval: 'IGEN' vagy 'NEM'.
+
+Kérdés: {query}
+"""
+    try:
+        is_math = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": check_prompt}],
+            temperature=0.0,
+            max_tokens=5
+        ).choices[0].message.content.strip().upper()
+
+        if "IGEN" in is_math:
+            code_gen_prompt = f"""
+Írj egy tiszta Python scriptet, ami kiszámítja a választ a következő kérdésre: "{query}"
+A kódban a végeredményt a `print()` segítségével írasd ki!
+Kizárólag a kódblokkot adj vissza Python szintaxisban!
+
+Példa kimenet:
+```python
+import math
+eredmeny = math.sqrt(144) * 2.5
+print(f"Eredmény: {eredmeny}")
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
