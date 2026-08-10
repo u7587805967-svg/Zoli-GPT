@@ -759,6 +759,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         "lng": dest_lng
     })
 
+    # FONTOS: A teljes HTML/CSS kód hármas idézőjelek (TRIPLE QUOTES) között kell legyen!
     html_code = """
     <!DOCTYPE html>
     <html>
@@ -820,7 +821,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 attribution: '© OpenStreetMap'
             }).addTo(map);
 
-            //  Böngésző GPS Helymeghatározása
+            // Böngésző GPS Helymeghatározása
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
@@ -845,7 +846,7 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                         // GPS Fókusz a felhasználóra
                         map.setView([userLat, userLng], 15);
 
-                        // 🏁 Ha van célállomás, útvonal kirajzolása
+                        // Ha van célállomás, útvonal kirajzolása
                         if (destData.lat && destData.lng) {
                             L.Routing.control({
                                 waypoints: [
