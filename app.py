@@ -2455,7 +2455,7 @@ with tab_chat:
                             # Itt futtatja le magának a számítást, mielőtt válaszolna neked
                             sandbox_result = ai_engine.execute_python_sandbox(python_code)
                             context_addition += f"\n\n[HÁTTÉRBEN LEFUTTATOTT PYTHON KÓD EREDMÉNYE A PONTOS VÁLASZHOZ]:\nKód:\n
-http://googleusercontent.com/immersive_entry_chip/0
+http://googleusercontent.com/immersive_entry_chip/1
 
                     # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
