@@ -742,7 +742,7 @@ Példa kimenet:
 ```python
 import math
 eredmeny = math.sqrt(144) * 2.5
-print(f"Eredmény: {eredmeny}")
+print(f"Eredmény: {{eredmeny}}")
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
