@@ -2483,7 +2483,8 @@ http://googleusercontent.com/immersive_entry_chip/0
                             "role": "user",
                             "content": [
                                 {"type": "text", "text": raw_user_input},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                image_data_url = "data:image/jpeg;base64," + str(base64_image)
+                                {"type": "image_url", "image_url": {"url": image_data_url}}
                             ]
                         })
                     else:
