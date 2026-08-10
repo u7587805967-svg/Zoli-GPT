@@ -747,17 +747,20 @@ print(f"Eredmény: {eredmeny}")
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     """
-    Dinamikus GPS térkép beágyazása a Streamlit alkalmazásba.
+    Dinamikus GPS térkép beágyazása:
+    - Lekéri a böngészőből a felhasználó aktuális GPS koordinátáit.
+    - Ráfókuszál a felhasználóra (kék pulzáló pont).
+    - Ha meg van adva célállomás (dest_lat, dest_lng), kirajzolja az útvonalat.
     """
+    
     dest_data_json = json.dumps({
         "name": dest_name,
         "lat": dest_lat,
         "lng": dest_lng
     })
 
-    # FONTOS: A nyitó és záró hármas idézőjelek (TRIPLE QUOTES) garantálják,
-    # hogy a CSS és JS kód szövegként menjen át!
-    html_code = f"""
+    # FONTOS: A teljes HTML/CSS kód hármas idézőjelek (TRIPLE QUOTES) között kell legyen!
+    html_code = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -770,10 +773,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
         <style>
-            body {{ margin: 0; padding: 0; font-family: Arial, sans-serif; }}
-            #map {{ height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }}
+            body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+            #map { height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
             
-            .gps-status {{
+            .gps-status {
                 padding: 10px 14px;
                 background-color: #f0f2f6;
                 border-left: 4px solid #007bff;
@@ -782,9 +785,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 font-size: 14px;
                 font-weight: bold;
                 color: #333;
-            }}
+            }
 
-            .user-gps-dot {{
+            /* Pulzáló kék GPS jelölő a felhasználó pozíciójához */
+            .user-gps-dot {
                 width: 18px;
                 height: 18px;
                 background-color: #007bff;
@@ -792,13 +796,13 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 border-radius: 50%;
                 box-shadow: 0 0 10px rgba(0, 123, 255, 0.9);
                 animation: pulse 1.6s infinite;
-            }}
+            }
 
-            @keyframes pulse {{
-                0% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }}
-                70% {{ box-shadow: 0 0 0 14px rgba(0, 123, 255, 0); }}
-                100% {{ box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }}
-            }}
+            @keyframes pulse {
+                0% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.7); }
+                70% { box-shadow: 0 0 0 14px rgba(0, 123, 255, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(0, 123, 255, 0); }
+            }
         </style>
     </head>
     <body>
@@ -806,67 +810,83 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
         <div id="map"></div>
 
         <script>
-            const destData = {dest_data_json};
+            const destData = __DEST_DATA_JSON__;
             const statusDiv = document.getElementById('status');
 
+            // Alapértelmezett térkép (Budapest központ fallback)
             const map = L.map('map').setView([47.4979, 19.0402], 13);
 
-            L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: '© OpenStreetMap'
-            }}).addTo(map);
+            }).addTo(map);
 
-            if ("geolocation" in navigator) {{
+            // Böngésző GPS Helymeghatározása
+            if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {{
+                    (position) => {
                         const userLat = position.coords.latitude;
                         const userLng = position.coords.longitude;
 
-                        statusDiv.innerHTML = "✅ GPS pozíció beérkezve!";
+                        statusDiv.innerHTML = "✅ GPS pozíció beérkezve! Ráállás a helyzetedre...";
 
-                        const userIcon = L.divIcon({{
+                        // Kék GPS ikon létrehozása
+                        const userIcon = L.divIcon({
                             className: 'user-gps-dot',
                             iconSize: [18, 18],
                             iconAnchor: [9, 9]
-                        }});
+                        });
 
-                        L.marker([userLat, userLng], {{ icon: userIcon }})
+                        // Felhasználó megjelölése
+                        L.marker([userLat, userLng], { icon: userIcon })
                          .addTo(map)
-                         .bindPopup("<b>Jelenlegi pozíció</b>")
+                         .bindPopup("<b> Az Ön jelenlegi pozíciója</b>")
                          .openPopup();
 
+                        // GPS Fókusz a felhasználóra
                         map.setView([userLat, userLng], 15);
 
-                        if (destData.lat && destData.lng) {{
-                            L.Routing.control({{
+                        // Ha van célállomás, útvonal kirajzolása
+                        if (destData.lat && destData.lng) {
+                            L.Routing.control({
                                 waypoints: [
                                     L.latLng(userLat, userLng),
                                     L.latLng(destData.lat, destData.lng)
                                 ],
-                                router: L.Routing.osrmv1({{
+                                router: L.Routing.osrmv1({
                                     serviceUrl: 'https://router.project-osrm.org/route/v1'
-                                }}),
+                                }),
                                 routeWhileDragging: false,
                                 show: true,
-                                collapsible: true
-                            }}).addTo(map);
+                                collapsible: true,
+                                createMarker: function(i, wp, n) {
+                                    if (i === 0) return null;
+                                    return L.marker(wp.latLng).bindPopup("<b>🏁 Célállomás: " + (destData.name || "Cél") + "</b>");
+                                }
+                            }).addTo(map);
 
-                            statusDiv.innerHTML = "🏁 Útvonal megtervezve!";
-                        }}
-                    }},
-                    (error) => {{
-                        statusDiv.innerHTML = "⚠️ GPS engedélyezése szükséges a böngészőben.";
-                    }},
-                    {{ enableHighAccuracy: true, timeout: 10000 }}
+                            statusDiv.innerHTML = "🏁 Útvonal megtervezve a célállomáshoz: <b>" + (destData.name || "Cél") + "</b>";
+                        }
+                    },
+                    (error) => {
+                        console.error("GPS Hiba:", error);
+                        statusDiv.innerHTML = "⚠️ Nem sikerült lekérni a GPS pozíciót. Kérjük engedélyezd a helymeghatározást a böngészőben!";
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
                 );
-            }} else {{
-                statusDiv.innerHTML = "❌ Nem támogatott GPS helymeghatározás.";
-            }}
+            } else {
+                statusDiv.innerHTML = "❌ A böngésződ nem támogatja a GPS helymeghatározást.";
+            }
         </script>
     </body>
     </html>
     """
     
+    html_code = html_code.replace("__DEST_DATA_JSON__", dest_data_json)
     components.html(html_code, height=530)
 
 @dataclass(frozen=True)
