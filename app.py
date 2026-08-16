@@ -85,13 +85,16 @@ llm_verifier = ChatGroq(
     groq_api_key=groq_key
 )
 
-vectorstore = QdrantVectorStore.from_existing_collection(
-    embedding=embeddings,
-    retrieval_mode=RetrievalMode.DENSE,  # Kifejezetten sűrű vektormód beállítása
-    collection_name="Engine_v4",
-    url=QDRANT_URL,
-    api_key=QDRANT_API_KEY,
-)
+try:
+    vectorstore = QdrantVectorStore.from_existing_collection(
+        embedding=embeddings,
+        retrieval_mode=RetrievalMode.DENSE,
+        collection_name="Zoli_GPT_cluster",
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+    )
+except Exception as e:
+    st.error(f"Qdrant csatlakozási hiba: {e}")
 
 
 def retrieve_and_rerank(state: AgentState):
