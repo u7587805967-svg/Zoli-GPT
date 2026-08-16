@@ -53,7 +53,8 @@ from langchain_cohere import CohereRerank
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
-from langchain_community.vectorstores import Qdrant
+import warnings
+warnings.filterwarnings("ignore")
 
 class AgentState(TypedDict):
     question: str
@@ -76,7 +77,7 @@ llm_verifier = ChatGroq(
     groq_api_key=groq_key
 )
 
-vectorstore = Qdrant.from_existing_collection(...) 
+vectorstore = QdrantVectorStore.from_existing_collection(...) 
 reranker = CohereRerank(top_n=3)
 
 
