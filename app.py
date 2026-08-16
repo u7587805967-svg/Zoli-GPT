@@ -69,13 +69,6 @@ groq_key = st.secrets.get("GROQ_API_KEY", "")
 QDRANT_URL = st.secrets.get("QDRANT_URL", "")
 QDRANT_API_KEY = st.secrets.get("QDRANT_API_KEY", "")
 
-client.create_collection(
-    collection_name="Engine_v4",
-    vectors_config=VectorParams(
-        size=384,  # a multilingual MiniLM modell mérete
-        distance=Distance.COSINE,
-    ),
-)
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
