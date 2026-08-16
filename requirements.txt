@@ -15,3 +15,8 @@ beautifulsoup4
 RestrictedPython
 trafilatura
 sentence-transformers
+langgraph
+langchain
+langchain-openai
+langchain-cohere
+qdrant-client
