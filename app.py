@@ -284,9 +284,10 @@ def szamits_bm25_n_gram_pont(query: str, title: str, text: str) -> float:
     return score
 
 
-def kiemel_szemantikus_ablakokat(query: str, full_text: str, max_chars: int = 2000) -> str:
+def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: int = 2000) -> str:
     """
-    Csúsztatott ablakos (Sliding Window) bekezdés-összegyűjtő a kontextus megőrzésére.
+    Továbbfejlesztett csúsztatott ablakos algoritmus, amely a BM25 kulcsszavas
+    és a MiniLM szemantikus vektoros egyezéseket (Hibrid) ötvözi.
     """
     sentences = re.split(r'(?<=[.!?])\s+', full_text.strip())
     if not sentences:
@@ -302,10 +303,21 @@ def kiemel_szemantikus_ablakokat(query: str, full_text: str, max_chars: int = 20
     if not windows:
         return full_text[:max_chars]
 
+    embedder = get_embedding_model()
+    query_vector = embedder.encode(query)
+    window_vectors = embedder.encode(windows)
+
     scored_windows = []
-    for w in windows:
-        score = szamits_bm25_n_gram_pont(query, "", w)
-        scored_windows.append((score, w))
+    for idx, chunk in enumerate(windows):
+        bm25_score = szamits_bm25_n_gram_pont(query, "", chunk)
+        
+        chunk_vector = window_vectors[idx]
+        cos_sim = np.dot(query_vector, chunk_vector) / (np.linalg.norm(query_vector) * np.linalg.norm(chunk_vector))
+        semantic_score = float(cos_sim) if not np.isnan(cos_sim) else 0.0
+
+        final_score = (semantic_score * 15.0) + bm25_score
+        
+        scored_windows.append((final_score, chunk))
 
     scored_windows.sort(key=lambda x: x[0], reverse=True)
 
@@ -316,13 +328,17 @@ def kiemel_szemantikus_ablakokat(query: str, full_text: str, max_chars: int = 20
     for score, chunk in scored_windows:
         if chunk in seen_chunks:
             continue
+        if score < 2.5: 
+            continue
+            
         if current_len + len(chunk) > max_chars:
             break
+            
         selected_chunks.append(chunk)
         seen_chunks.add(chunk)
         current_len += len(chunk)
 
-    return "\n\n".join(selected_chunks) if selected_chunks else full_text[:max_chars]
+    return "\n\n[...] ".join(selected_chunks) if selected_chunks else full_text[:max_chars]
 
 
 def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
@@ -401,13 +417,14 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
                 page_text = ""
 
             if len(page_text) > 120:
-                content = kiemel_szemantikus_ablakokat(query, page_text, max_chars=2000)
+                content = kiemel_szemantikus_ablakokat_hibrid(query, page_text, max_chars=1800)
             else:
                 content = item['snippet']
 
             bm25_score = szamits_bm25_n_gram_pont(query, item['title'], content)
             rrf_score = 1.0 / (60 + item['initial_rank'])
-            final_score = bm25_score + (rrf_score * 10.0)
+            
+            final_score = bm25_score + (rrf_score * 15.0)
 
             fetched_data.append({
                 'title': item['title'],
