@@ -55,6 +55,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 import warnings
 from langchain_qdrant import RetrievalMode
+from langchain_huggingface import HuggingFaceEmbeddings
 warnings.filterwarnings("ignore")
 
 class AgentState(TypedDict):
@@ -65,6 +66,12 @@ class AgentState(TypedDict):
     iterations: int
 
 groq_key = st.secrets.get("GROQ_API_KEY", "")
+QDRANT_URL = st.secrets.get("QDRANT_URL", "")
+QDRANT_API_KEY = st.secrets.get("QDRANT_API_KEY", "")
+
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+
+# 3. Connect to vector store
 
 llm_generator = ChatGroq(
     model="llama-3.3-70b-versatile",

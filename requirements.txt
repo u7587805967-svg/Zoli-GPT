@@ -24,3 +24,4 @@ qdrant-client
 langchain-qdrant
 langchain-groq
 torchvision
+langchain-huggingface
