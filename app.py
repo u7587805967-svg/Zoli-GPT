@@ -61,10 +61,19 @@ class AgentState(TypedDict):
     is_verified: bool
     iterations: int
 
-llm_generator = ChatOpenAI(model="o3-mini", temperature=0.2) 
-llm_verifier = ChatOpenAI(model="gpt-4o", temperature=0)
+llm_generator = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    temperature=0.2,
+    groq_api_key=groq_key
+)
 
-vectorstore = Qdrant.from_existing_collection(...) # Ide jön a Qdrant beállításod
+llm_verifier = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,
+    groq_api_key=groq_key
+)
+
+vectorstore = Qdrant.from_existing_collection(...) 
 reranker = CohereRerank(top_n=3)
 
 
