@@ -2269,7 +2269,18 @@ with tab_chat:
                         if url:
                             st.image(url, caption=f" Kép: {user_input}", use_container_width=True)
                             db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
-                
+                elif is_video_request:
+                    with st.spinner("🎬 AI Videógenerálás..."):
+                        url = ai_engine.generate_video(user_input, TEXT_MODEL)
+                        if url:
+                            # Mivel az új függvény egy animált b64 gif-el tér vissza, az st.image-el jelenítjük meg azonnal
+                            if url.startswith("data:image/gif"):
+                                st.image(url)
+                            else:
+                                st.video(url)
+                            db_repo.log_message(active_chat_user, "assistant", url, "video", thread_id=st.session_state.get("current_thread", "default"))
+                else:
+                    start_time = time.perf_counter()
                     
                     system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
                     context_addition = ""
