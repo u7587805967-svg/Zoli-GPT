@@ -86,7 +86,6 @@ def hibrid_rrf_rangsorolas(vector_results: list, bm25_results: list, k: int = 60
         doc_id = doc['url']
         scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
         
-    # Egyesített sorrend visszaadása
     all_docs = {d['url']: d for d in vector_results + bm25_results}
     sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [all_docs[doc_id] for doc_id, _ in sorted_docs]
@@ -658,7 +657,6 @@ st.set_page_config(page_title="Zoli GPT ", page_icon="🚭", layout="centered")
 
 cfg = AppConfig()
 
-# Biztonsági retesz: minden futáskor alaphelyzetbe állítjuk, ha beragadt volna
 if "generating" not in st.session_state:
     st.session_state.generating = False
 else:
@@ -735,7 +733,6 @@ class DatabaseRepository:
                 cursor.execute("SELECT password_hash, salt FROM users WHERE username=?", (username,))
                 res = cursor.fetchone()
             except sqlite3.OperationalError:
-                # Ha a salt oszlop még valamiért nem létezne (régi DB lekérdezés hiba)
                 cursor.execute("SELECT password_hash FROM users WHERE username=?", (username,))
                 res = cursor.fetchone()
                 if res and res[0] == hashlib.sha256(password_raw.encode('utf-8')).hexdigest():
@@ -744,7 +741,6 @@ class DatabaseRepository:
 
             if res:
                 stored_hash, salt = res
-                # Ha régi, nem sózott jelszó van az adatbázisban (kompatibilitás miatt)
                 if salt is None:
                     return stored_hash == hashlib.sha256(password_raw.encode('utf-8')).hexdigest()
                 else:
@@ -925,7 +921,6 @@ if not st.session_state.logged_in_user:
             st.markdown('<div class="login-box">', unsafe_allow_html=True)
             
             if time.time() < st.session_state.lockout_until:
-                # BRUTE-FORCE VÉDELEM: Kizárás jelzése
                 remaining_time = int(st.session_state.lockout_until - time.time())
                 st.error(f"🔒 Fiók biztonsági okokból zárolva túl sok hibás kísérlet miatt. Próbáld újra {remaining_time} másodperc múlva.")
             else:
@@ -934,7 +929,6 @@ if not st.session_state.logged_in_user:
                 if st.button("Belépés", type="primary", use_container_width=True, key="login_btn"):
                     cleaned_input = input_username.lower().strip()
                     if cleaned_input and input_password:
-                        # Átadjuk a nyers jelszót, a verify_user maga kezeli a hash és salt logikát
                         if db_repo.verify_user(cleaned_input, input_password) or cleaned_input == cfg.ADMIN_USERNAME.lower().strip():
                             st.session_state.login_attempts = 0 # Sikeres belépés, nullázzuk a számlálót
                             st.session_state.logged_in_user = cleaned_input
@@ -979,7 +973,6 @@ active_chat_user = st.session_state.logged_in_user
 
 is_admin = (active_chat_user == cfg.ADMIN_USERNAME.lower().strip())
 
-# Biztosítjuk, hogy az admin által kiválasztott célszemély adatai töltődjenek be a renderelés előtt
 if is_admin and "admin_selected_user" in st.session_state:
     active_chat_user = st.session_state.admin_selected_user
 
@@ -1500,7 +1493,6 @@ class AsyncAIEngine:
             for tag in soup(["script", "style", "nav", "footer", "aside"]):
                 tag.extract()
             text = soup.get_text(separator='\n')
-            # Üres sorok és felesleges szóközök takarítása
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             return '\n'.join(lines)[:5000] # Maximális méret limitálása a kontextus ablak védelme miatt
         except Exception as e:
@@ -1533,7 +1525,6 @@ class AsyncAIEngine:
             except Exception as e:
                 print(f"Fordítási hiba: {e}")
 
-        # GIF Generálás
         try:
             encoded_prompt = urllib.parse.quote(en_query)
             image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
@@ -1662,7 +1653,6 @@ class AsyncAIEngine:
             glb['_getiter_'] = iter
             glb['_write_'] = lambda obj: obj
             
-            # Biztonságos fordítás és futtatás
             byte_code = compile_restricted(code, '<inline>', 'exec')
             exec(byte_code, glb, loc)
             
@@ -1676,7 +1666,6 @@ class AsyncAIEngine:
             sys.stdout = old_stdout
             return f"Hiba a biztonságos futtatás során (Restricted Sandbox): {e}"
 
-# TÉRKÉP ÉS ÚTVONALTERVEZŐ MOTOR
 class MapRoutingEngine:
     @staticmethod
     def geocode(location_name: str):
@@ -1799,18 +1788,15 @@ def show_route_widget(start_loc: str, end_loc: str):
         
     st.markdown(f"###  Útvonal: **{s_name.split(',')[0]}** ➔ **{e_name.split(',')[0]}**")
     
-    # Távolság és idő kijelzése
     col1, col2 = st.columns(2)
     with col1:
         st.metric(" Távolság", f"{route['distance_km']} km")
     with col2:
         st.metric(" Várható idő", f"{route['duration_min']} perc")
         
-    # Interaktív térkép kirajzolása a Streamlit felületén
     map_html = MapRoutingEngine.render_map_html(s_lat, s_lon, e_lat, e_lon, route['polyline'], s_name, e_name)
     st.components.v1.html(map_html, height=420)
     
-    # Lépésről lépésre útbaigazítás (opcionálisan lenyitható panel)
     with st.expander(" Lépésről lépésre útbaigazítás", expanded=False):
         for idx, step in enumerate(route['steps'], 1):
             st.write(f"**{idx}.** {step['instruction']} *({step['distance']} m)*")
@@ -2123,7 +2109,6 @@ if is_admin:
             total_tokens = df_tok['tokens'].sum()
             total_cost = df_tok['cost'].sum()
             
-            # Dinamikus INGYENES percenkénti token korlát (TPM) meghatározása
             model_limits = {
                 "llama-3.3-70b-versatile": 100000,
                 "llama-3.1-8b-instant": 500000,
@@ -2185,11 +2170,11 @@ if is_admin:
                         
                 diag_status.update(label="✅ Diagnosztika befejeződött!", state="complete", expanded=False)
 
-# --- 💬 CHAT INTERFACE ---
+# ---  CHAT INTERFACE ---
 with tab_chat:
     alert = db_repo.fetch_latest_alert()
     if alert:
-        st.warning(f"📢 **Rendszerértesítés:** {alert}")
+        st.warning(f" **Rendszerértesítés:** {alert}")
 
     col_left, col_right = st.columns([5, 2])
     with col_right:
@@ -2248,7 +2233,6 @@ with tab_chat:
         st.session_state.generating = True
         st.session_state.mute_voice = False
         
-        # Módosítás (2. pont miatt): Eltároljuk a nyers inputot a web scrapernek, mielőtt a GDPR anonimizáló törli az URL-eket
         raw_user_input = user_input 
         
         st.chat_message("user").write(user_input)
@@ -2259,7 +2243,6 @@ with tab_chat:
             response_placeholder = st.empty()
             
             try:
-                # --- UPGRADE: Rugalmas magyar kulcsszó-detektálás (ragozott alakokhoz is) ---
                 is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
                 is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
                 
@@ -2277,7 +2260,6 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
-                    # ---  INTELLIGENS ÁGENS (AGENTIC WORKFLOW) TERVEZÉSI FÁZIS ---
                     with st.status(" Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -2303,12 +2285,11 @@ with tab_chat:
                             med_query = "medical symptoms"
                             agent_status.write("⚠️ Router hiba, fallback üzemmód aktív.")
 
-                        # --- RAG eszköz végrehajtása ---
                         if use_rag:
                             # ... (A meglévő RAG kódod marad itt) ...
-                            pass # Helyettesítsd be az eredetit!
+                            pass
 
-                        # --- Orvosi Adatbázis eszköz végrehajtása (ÚJ) ---
+
                         if use_med and med_query:
                             agent_status.update(label=" Hivatalos orvosi publikációk kutatása...")
                             med_results = ai_engine.search_medical_database(med_query)
@@ -2330,11 +2311,9 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ Nem találtam idevágó adatot a belső dokumentumokban.")
 
-                        # --- Web Search eszköz végrehajtása ---
                         if use_web:
                             agent_status.update(label=" Webes elemzés folyamatban...")
                             
-                            # Meghívjuk az új végtelenül pontos, Agentic keresőt
                             web_results = ai_engine.advanced_deep_web_search(user_input)
                             
                             if web_results and "nem tudom biztosan megmondani" not in web_results.lower() and "Hiba" not in web_results:
@@ -2342,7 +2321,6 @@ with tab_chat:
                                 agent_status.write("✅ Webes kutatás és tényellenőrzés befejezve.")
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető, tényalapú eredményt.")
-# --- WEBOLDAL OLVASÓ (SCRAPER) ESZKÖZ VÉGREHAJTÁSA (2. PONT) ---
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -2351,7 +2329,6 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
-                        # --- 4. SELF-RAG: KONTEXTUS ELLENŐRZÉSE ---
                         agent_status.update(label=" Kontextus ellenőrzése (Self-RAG)...")
                         can_answer = True
                         
@@ -2379,9 +2356,7 @@ with tab_chat:
 
                         agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
 
-                    # --- ST.STATUS (AGENTIC WORKFLOW) BLOKK VÉGE ---
 
-                    # Ha nem tud válaszolni a forrásokból, felülírjuk a rendszert
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
 
@@ -2395,7 +2370,6 @@ with tab_chat:
                         if msg["type"] == "text":
                             messages.append({"role": msg["role"], "content": msg["content"]})
                     
-                    # --- MULTIMODÁLIS (VISION) CHAT BEKÖTÉSE (1. PONT) ---
                     if "active_vision_image" in st.session_state and TEXT_MODEL == "llama-3.2-11b-vision-preview":
                         base64_image = base64.b64encode(st.session_state.active_vision_image).decode('utf-8')
                         messages.append({
@@ -2408,7 +2382,6 @@ with tab_chat:
                     else:
                         messages.append({"role": "user", "content": user_input})
                     
-                    # --- NAPTÁR ÉS VILÁGÓRA INTEGRÁCIÓ AZ AI SZÁMÁRA ---
                     try:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
@@ -2439,7 +2412,6 @@ with tab_chat:
                                 messages[-1]["content"] = system_context + messages[-1]["content"]
                     except Exception:
                         pass
-                    # --- INTEGRÁCIÓ VÉGE ---
 
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
@@ -2450,15 +2422,13 @@ with tab_chat:
                     if web_sources_text:
                         full_response += web_sources_text
                         
-                    # --- ÚJ: Weboldalak automatikus megnyitásának kezelése ---
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
                     
-                    # --- ÚJ: Térkép és Útvonaltervezés kezelése ---
                     route_match = re.search(r'\[ROUTE:\s*([^|]+)\s*\|\s*([^\]]+)\]', display_response)
                     if route_match:
                         display_response = re.sub(r'\[ROUTE:\s*[^|]+\s*\|\s*[^\]]+\]', '', display_response)
-                    # --- ÚJ: Zenelejátszás Regex elkapása ---
+
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
@@ -2480,7 +2450,6 @@ with tab_chat:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
-                    # ---Zenelejátszás Regex elkapása ---
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
@@ -2507,11 +2476,9 @@ with tab_chat:
                         with st.spinner(f" Zene keresése: {search_query}..."):
                             try:
                                 with DDGS() as ddgs:
-                                    # Keresünk egy videót a DuckDuckGo segítségével
                                     results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
                                     if results:
                                         video_url = results[0].get('content', '')
-                                        # Ellenőrizzük, hogy tényleg YouTube linket kaptunk-e
                                         if "youtube" in video_url or "youtu.be" in video_url:
                                             # YouTube videó ID kinyerése
                                             import re
@@ -2519,7 +2486,6 @@ with tab_chat:
                                             
                                             if yt_id_match:
                                                 video_id = yt_id_match.group(1)
-                                                # HTML Iframe generálása autoplay paraméterrel
                                                 autoplay_html = f"""
                                                     <iframe width="100%" height="315" 
                                                         src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
@@ -2531,7 +2497,6 @@ with tab_chat:
                                                 st.components.v1.html(autoplay_html, height=315)
                                                 st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
                                             else:
-                                                # Fallback, ha valamiért nem sikerül kinyerni az ID-t
                                                 st.video(video_url)
                                                 st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
                                         else:
