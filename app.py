@@ -47,6 +47,83 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
+from typing import TypedDict
+from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_cohere import CohereRerank
+from langchain_community.vectorstores import Qdrant
+from langchain_core.prompts import ChatPromptTemplate
+
+class AgentState(TypedDict):
+    question: str
+    context: list
+    draft_answer: str
+    is_verified: bool
+    iterations: int
+
+llm_generator = ChatOpenAI(model="o3-mini", temperature=0.2) 
+llm_verifier = ChatOpenAI(model="gpt-4o", temperature=0)
+
+vectorstore = Qdrant.from_existing_collection(...) # Ide jön a Qdrant beállításod
+reranker = CohereRerank(top_n=3)
+
+
+def retrieve_and_rerank(state: AgentState):
+    """Kikeresi a dokumentumokat és újrarendezi (Rerank) őket a legrelevánsabbakra."""
+    question = state["question"]
+    
+    # Alap vektoros keresés (pl. top 10)
+    raw_docs = vectorstore.similarity_search(question, k=10)
+    
+    # Cohere Reranking (lecsökkenti top 3-ra a legtisztább adatokért)
+    compressed_docs = reranker.compress_documents(raw_docs, question)
+    
+    return {"context": compressed_docs}
+
+def generate_answer(state: AgentState):
+    """Megírja a választ a kontextus alapján (CoT logika)."""
+    prompt = ChatPromptTemplate.from_template(
+        "Válaszold meg a kérdést a megadott kontextus alapján. Gondolkozz lépésről lépésre.\nKontextus: {context}\nKérdés: {question}"
+    )
+    chain = prompt | llm_generator
+    response = chain.invoke({"question": state["question"], "context": state["context"]})
+    
+    return {"draft_answer": response.content, "iterations": state.get("iterations", 0) + 1}
+
+def verify_facts(state: AgentState):
+    """Ellenőrzi, hogy a válasz ténybelileg megegyezik-e a kontextussal."""
+    prompt = ChatPromptTemplate.from_template(
+        "Kritikusként ellenőrizd, hogy az alábbi válasz TARTALMAZ-E hallucinációt a kontextushoz képest. "
+        "Csak 'IGEN' vagy 'NEM' választ adj. (IGEN = helyes, NEM = hallucinál)\n"
+        "Kontextus: {context}\nVálasz: {draft_answer}"
+    )
+    chain = prompt | llm_verifier
+    evaluation = chain.invoke({"context": state["context"], "draft_answer": state["draft_answer"]})
+    
+    is_valid = "IGEN" in evaluation.content.upper()
+    return {"is_verified": is_valid}
+
+def route_verification(state: AgentState):
+    """Eldönti, hogy mehet-e a válasz a felhasználónak, vagy újra kell írni."""
+    if state["is_verified"]:
+        return END # Kilépés, a válasz tökéletes
+    elif state["iterations"] >= 3:
+        return END # Biztonsági fék, hogy ne kerüljön végtelen ciklusba
+    else:
+        return "generate" # Visszaküldi újraírásra
+
+workflow = StateGraph(AgentState)
+
+workflow.add_node("retrieve", retrieve_and_rerank)
+workflow.add_node("generate", generate_answer)
+workflow.add_node("verify", verify_facts)
+
+workflow.set_entry_point("retrieve")
+workflow.add_edge("retrieve", "generate")
+workflow.add_edge("generate", "verify")
+workflow.add_conditional_edges("verify", route_verification)
+
+super_agent_app = workflow.compile()
 
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
