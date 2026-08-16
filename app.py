@@ -51,7 +51,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_cohere import CohereRerank
-from langchain_community.vectorstores import Qdrant
+from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate
 
 class AgentState(TypedDict):

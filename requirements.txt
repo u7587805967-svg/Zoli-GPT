@@ -20,3 +20,6 @@ langchain
 langchain-openai
 langchain-cohere
 qdrant-client
+langchain-community
+qdrant-client
+langchain-qdrant
