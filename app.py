@@ -49,10 +49,10 @@ from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
 from langchain_cohere import CohereRerank
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
 
 class AgentState(TypedDict):
     question: str
@@ -60,6 +60,8 @@ class AgentState(TypedDict):
     draft_answer: str
     is_verified: bool
     iterations: int
+
+groq_key = st.secrets.get("GROQ_API_KEY", "")
 
 llm_generator = ChatGroq(
     model="llama-3.3-70b-versatile",
