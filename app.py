@@ -54,6 +54,7 @@ from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 import warnings
+from langchain_qdrant import RetrievalMode
 warnings.filterwarnings("ignore")
 
 class AgentState(TypedDict):
@@ -77,8 +78,13 @@ llm_verifier = ChatGroq(
     groq_api_key=groq_key
 )
 
-vectorstore = QdrantVectorStore.from_existing_collection(...) 
-reranker = CohereRerank(top_n=3)
+vectorstore = QdrantVectorStore.from_existing_collection(
+    embedding=embeddings,
+    retrieval_mode=RetrievalMode.DENSE,  # Kifejezetten sűrű vektormód beállítása
+    collection_name="Engine_v4",
+    url=QDRANT_URL,
+    api_key=QDRANT_API_KEY,
+)
 
 
 def retrieve_and_rerank(state: AgentState):
