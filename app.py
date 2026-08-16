@@ -53,6 +53,7 @@ from langchain_cohere import CohereRerank
 from langchain_qdrant import QdrantVectorStore
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
+from langchain_community.vectorstores import Qdrant
 
 class AgentState(TypedDict):
     question: str

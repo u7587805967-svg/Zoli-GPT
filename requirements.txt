@@ -23,3 +23,4 @@ langchain-community
 qdrant-client
 langchain-qdrant
 langchain-groq
+torchvision
