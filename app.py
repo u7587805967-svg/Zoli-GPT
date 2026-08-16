@@ -2369,7 +2369,7 @@ with tab_chat:
                             except Exception:
                                 pass
                         
-                        system_context = f"\n[Rendszer információ az AI számára - Naptár és Világóra]:\n{current_date_info}{world_clocks}\n"
+                        system_context = f"\n[SZIGORÚAN BETARTANDÓ: SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!! - Naptár és Világóra]:\n{current_date_info}{world_clocks}\n"
                         
                         if messages and messages[-1]["role"] == "user":
                             if isinstance(messages[-1]["content"], list):
