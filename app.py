@@ -2124,6 +2124,49 @@ if is_admin:
             st.dataframe(df_tok.tail(30), use_container_width=True)
         else:
             st.info("Még nincs rögzített token használati adat.")
+        st.markdown("---")
+        st.markdown("### 🩺 Zoli (Rendszer) Diagnosztika")
+        st.info("Futtass egy gyors állapotfelmérést a rendszer kritikus elemein (Adatbázis, API-k, LLM válaszidő).")
+        
+        if st.button("🚀 Diagnosztika Futtatása", use_container_width=True, key="run_diagnostics_btn"):
+            with st.status("Diagnosztika folyamatban...", expanded=True) as diag_status:
+                
+                
+                st.write("⏳ Adatbázis kapcsolat tesztelése...")
+                try:
+                    with db_repo._get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT 1")
+                    st.success("✅ Adatbázis kapcsolat: Stabil és válaszol.")
+                except Exception as e:
+                    st.error(f"❌ Adatbázis hiba: {e}")
+                
+                
+                st.write("⏳ API kulcsok állapotának lekérdezése...")
+                if GROQ_API_KEY:
+                    st.success("✅ Groq API Kulcs: Aktív")
+                else:
+                    st.error("❌ Groq API Kulcs: Hiányzik!")
+                
+                
+                st.write(f"⏳ 'Zoli' ({TEXT_MODEL}) agykapacitásának pingelése...")
+                if GROQ_API_KEY:
+                    start_time = time.time()
+                    try:
+                        client = Groq(api_key=GROQ_API_KEY)
+                        # Egy minimális kérés a modell válaszidejének mérésére
+                        client.chat.completions.create(
+                            model=TEXT_MODEL,
+                            messages=[{"role": "user", "content": "ping"}],
+                            max_tokens=2,
+                            timeout=10.0
+                        )
+                        elapsed = time.time() - start_time
+                        st.success(f"✅ Zoli válaszideje: {elapsed:.3f} másodperc")
+                    except Exception as e:
+                        st.error(f"❌ Zoli (LLM) ping hiba: {e}")
+                        
+                diag_status.update(label="✅ Diagnosztika befejeződött!", state="complete", expanded=False)
 
 # --- 💬 CHAT INTERFACE ---
 with tab_chat:
