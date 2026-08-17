@@ -52,14 +52,16 @@ from rank_bm25 import BM25Okapi
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 response = client.chat.completions.create(
-    model="llama-3.3-70b",
+    model="llama-3.3-70b-versatile",
     messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
 )
 
 print(response.choices[0].message.content)
 
 models = client.models.list()
-print([model.id for model in models.data])
+print("Ezeket a modelleket használhatod:")
+for model in models.data:
+    print(f"- {model.id}")
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
