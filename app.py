@@ -47,7 +47,7 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
-
+from rank_bm25 import BM25Okapi
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
@@ -240,47 +240,17 @@ def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
     return ""
 
 
-def szamits_bm25_n_gram_pont(query: str, title: str, text: str) -> float:
-    """
-    Továbbfejlesztett BM25 + Bigram / Phrase Matching algoritmus.
-    """
-    def tokenize(s: str) -> list[str]:
-        words = re.findall(r'\w+', s.lower())
-        return [w for w in words if w not in HUNGARIAN_STOPWORDS and len(w) > 2]
-
-    q_tokens = tokenize(query)
-    if not q_tokens:
-        return 0.0
-
-    t_tokens = tokenize(text)
-    title_tokens = tokenize(title)
-
-    if not t_tokens:
-        return 0.0
-
-    k1 = 1.2
-    b = 0.75
-    avg_doc_len = 250
-    doc_len = len(t_tokens)
-
-    score = 0.0
-    for token in set(q_tokens):
-        tf = t_tokens.count(token)
-        if tf == 0:
-            continue
-        tf_score = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_len / avg_doc_len)))
-        score += tf_score
-
-        if token in title_tokens:
-            score += 3.0
-
-    if len(q_tokens) >= 2:
-        for i in range(len(q_tokens) - 1):
-            bigram = f"{q_tokens[i]} {q_tokens[i+1]}"
-            if bigram in text.lower():
-                score += 4.5
-
-    return score
+def professzionalis_bm25_rangsorolas(query: str, documents: list[str]) -> list[float]:
+    """Valódi Okapi BM25 pontozás a szövegablakokhoz."""
+    tokenized_query = magyar_szoto_normalizalo(query)
+    tokenized_corpus = [magyar_szoto_normalizalo(doc) for doc in documents]
+    
+    # Ha üres a korpusz vagy a lekérdezés, térjünk vissza 0-kkal
+    if not tokenized_query or not tokenized_corpus:
+        return [0.0] * len(documents)
+        
+    bm25 = BM25Okapi(tokenized_corpus)
+    return bm25.get_scores(tokenized_query).tolist()
 
 
 def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: int = 2000) -> str:

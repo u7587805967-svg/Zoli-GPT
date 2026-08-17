@@ -25,3 +25,4 @@ langchain-qdrant
 langchain-groq
 torchvision
 langchain-huggingface
+rank_bm25
