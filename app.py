@@ -58,6 +58,9 @@ response = client.chat.completions.create(
 
 print(response.choices[0].message.content)
 
+models = client.models.list()
+print([model.id for model in models.data])
+
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
     Kiszűri a magyar ragokat és toldalékokat a pontosabb kulcsszó-egyeztetéshez.
