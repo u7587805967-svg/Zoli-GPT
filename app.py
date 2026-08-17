@@ -49,14 +49,20 @@ from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
-response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
-    messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
-)
-
-print(response.choices[0].message.content)
+if groq_api_key:
+    try:
+        client = Groq(api_key=groq_api_key)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
+        )
+        print("Startup test successful:", response.choices[0].message.content)
+    except Exception as e:
+        print(f"Groq startup test failed: {e}")
+else:
+    print("Warning: GROQ_API_KEY is not set in st.secrets or environment variables.")
 
 models = client.models.list()
 print("Ezeket a modelleket használhatod:")
