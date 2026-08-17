@@ -55,7 +55,7 @@ if groq_api_key:
     try:
         client = Groq(api_key=groq_api_key)
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.3-70b",
             messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
         )
         print("Startup test successful:", response.choices[0].message.content)
@@ -470,7 +470,7 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.3-70b",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
@@ -1121,7 +1121,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+        return ["llama-3.3-70b", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
@@ -2100,7 +2100,7 @@ if is_admin:
             total_cost = df_tok['cost'].sum()
             
             model_limits = {
-                "llama-3.3-70b-versatile": 100000,
+                "llama-3.3-70b": 100000,
                 "llama-3.1-8b-instant": 500000,
                 "llama-3.2-11b-vision-preview": 500000,
                 "llama-3.2-3b-preview": 500000,
