@@ -55,7 +55,7 @@ if groq_api_key:
     try:
         client = Groq(api_key=groq_api_key)
         response = client.chat.completions.create(
-            model="llama-prompt-guard-2-86m",
+            model="llama-guard-3-8b",
             messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
         )
         print("Startup test successful:", response.choices[0].message.content)
