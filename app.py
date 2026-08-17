@@ -49,7 +49,14 @@ from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
+)
+
+print(response.choices[0].message.content)
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
