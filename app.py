@@ -52,7 +52,7 @@ from rank_bm25 import BM25Okapi
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
+    model="llama-3.3-70b",
     messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
 )
 
