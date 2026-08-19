@@ -47,45 +47,7 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
-from rank_bm25 import BM25Okapi
 
-groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
-
-if groq_api_key:
-    try:
-        client = Groq(api_key=groq_api_key)
-        available_models = client.models.list()
-        for model in available_models.data:
-            print(model.id)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-specdec",
-            messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
-        )
-        print("Startup test successful:", response.choices[0].message.content)
-    except Exception as e:
-        print(f"Groq startup test failed: {e}")
-else:
-    print("Warning: GROQ_API_KEY is not set in st.secrets or environment variables.")
-
-models = client.models.list()
-print("Ezeket a modelleket használhatod:")
-for model in models.data:
-    print(f"- {model.id}")
-
-def get_valid_groq_model(client) -> str:
-    try:
-        models = [m.id for m in client.models.list().data]
-        # Kikeresünk egy Llama modellt a listából
-        for model_id in models:
-            if "llama" in model_id.lower():
-                return model_id
-        return models[0] # Ha nincs Llama, az első elérhetőt adjuk vissza
-    except Exception as e:
-        print(f"Nem sikerült lekérni a modelleket: {e}")
-        return "llama3-8b-8192"
-
-# Használat a hívásnál:
-active_model = get_valid_groq_model(client)
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
@@ -278,17 +240,47 @@ def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
     return ""
 
 
-def professzionalis_bm25_rangsorolas(query: str, documents: list[str]) -> list[float]:
-    """Valódi Okapi BM25 pontozás a szövegablakokhoz."""
-    tokenized_query = magyar_szoto_normalizalo(query)
-    tokenized_corpus = [magyar_szoto_normalizalo(doc) for doc in documents]
-    
-    # Ha üres a korpusz vagy a lekérdezés, térjünk vissza 0-kkal
-    if not tokenized_query or not tokenized_corpus:
-        return [0.0] * len(documents)
-        
-    bm25 = BM25Okapi(tokenized_corpus)
-    return bm25.get_scores(tokenized_query).tolist()
+def szamits_bm25_n_gram_pont(query: str, title: str, text: str) -> float:
+    """
+    Továbbfejlesztett BM25 + Bigram / Phrase Matching algoritmus.
+    """
+    def tokenize(s: str) -> list[str]:
+        words = re.findall(r'\w+', s.lower())
+        return [w for w in words if w not in HUNGARIAN_STOPWORDS and len(w) > 2]
+
+    q_tokens = tokenize(query)
+    if not q_tokens:
+        return 0.0
+
+    t_tokens = tokenize(text)
+    title_tokens = tokenize(title)
+
+    if not t_tokens:
+        return 0.0
+
+    k1 = 1.2
+    b = 0.75
+    avg_doc_len = 250
+    doc_len = len(t_tokens)
+
+    score = 0.0
+    for token in set(q_tokens):
+        tf = t_tokens.count(token)
+        if tf == 0:
+            continue
+        tf_score = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_len / avg_doc_len)))
+        score += tf_score
+
+        if token in title_tokens:
+            score += 3.0
+
+    if len(q_tokens) >= 2:
+        for i in range(len(q_tokens) - 1):
+            bigram = f"{q_tokens[i]} {q_tokens[i+1]}"
+            if bigram in text.lower():
+                score += 4.5
+
+    return score
 
 
 def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: int = 2000) -> str:
@@ -488,13 +480,13 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-specdec",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.1,  
-        max_tokens=3000   
+        temperature=0.1,  # Alacsony hőmérséklet a hallucinációk minimálisra csökkentéséhez
+        max_tokens=3000   # Bővített válaszhossz a részletes magyarázatokhoz
     )
 
     return response.choices[0].message.content
@@ -1139,7 +1131,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.3-70b-specdec", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
 
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
@@ -2118,7 +2110,7 @@ if is_admin:
             total_cost = df_tok['cost'].sum()
             
             model_limits = {
-                "llama-3.3-70b-specdec": 100000,
+                "llama-3.3-70b-versatile": 100000,
                 "llama-3.1-8b-instant": 500000,
                 "llama-3.2-11b-vision-preview": 500000,
                 "llama-3.2-3b-preview": 500000,
@@ -2226,16 +2218,6 @@ with tab_chat:
                             with cols[4]:
                                 if st.button(" Run", key=f"run_{idx}", use_container_width=True):
                                     out = ai_engine.execute_python_sandbox(python_codes[0])
-                                    st.code(out)
-                                except Exception as e:
-                                    st.error(f"Kód futtatási hiba: {e}")
-                                felhasznalo_kerdese = st.chat_input("Írj egy üzenetet...")
-                                if felhasznalo_kerdese:
-                                    response = client.chat.completions.create(
-                                        model=active_model,
-                                        messages=[{"role": "user", "content": felhasznalo_kerdese}]
-                                    )
-                                    st.write(response.choices[0].message.content)
                                     st.info(f" **Kód kimenet:**\n```\n{out}\n```")
                             with cols[5]:
                                 st.download_button(" .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
@@ -2525,8 +2507,6 @@ with tab_chat:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
                     response_placeholder.markdown(display_response)
-
-        st.write(response.choices[0].message.content)
                     
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
