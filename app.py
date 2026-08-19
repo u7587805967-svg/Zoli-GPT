@@ -2226,6 +2226,16 @@ with tab_chat:
                             with cols[4]:
                                 if st.button(" Run", key=f"run_{idx}", use_container_width=True):
                                     out = ai_engine.execute_python_sandbox(python_codes[0])
+                                    st.code(out)
+                                except Exception as e:
+                                    st.error(f"Kód futtatási hiba: {e}")
+                                felhasznalo_kerdese = st.chat_input("Írj egy üzenetet...")
+                                if felhasznalo_kerdese:
+                                    response = client.chat.completions.create(
+                                        model=active_model,
+                                        messages=[{"role": "user", "content": felhasznalo_kerdese}]
+                                    )
+                                    st.write(response.choices[0].message.content)
                                     st.info(f" **Kód kimenet:**\n```\n{out}\n```")
                             with cols[5]:
                                 st.download_button(" .py", data=python_codes[0], file_name=f"script_{idx}.py", key=f"py_{idx}", use_container_width=True)
@@ -2516,12 +2526,6 @@ with tab_chat:
 
                     response_placeholder.markdown(display_response)
 
-    felhasznalo_kerdese = st.chat_input("Írj egy üzenetet...")
-    if felhasznalo_kerdese:
-        response = client.chat.completions.create(
-            model=active_model,
-            messages=[{"role": "user", "content": felhasznalo_kerdese}]
-        )
         st.write(response.choices[0].message.content)
                     
                     end_time = time.perf_counter()
