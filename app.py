@@ -54,6 +54,9 @@ groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 if groq_api_key:
     try:
         client = Groq(api_key=groq_api_key)
+        available_models = client.models.list()
+        for model in available_models.data:
+            print(model.id)
         response = client.chat.completions.create(
             model="llama-3.3-70b-specdec",
             messages=[{"role": "user", "content": "Szia! Működik a rendszer?"}]
@@ -68,6 +71,26 @@ models = client.models.list()
 print("Ezeket a modelleket használhatod:")
 for model in models.data:
     print(f"- {model.id}")
+
+def get_valid_groq_model(client) -> str:
+    try:
+        models = [m.id for m in client.models.list().data]
+        # Kikeresünk egy Llama modellt a listából
+        for model_id in models:
+            if "llama" in model_id.lower():
+                return model_id
+        return models[0] # Ha nincs Llama, az első elérhetőt adjuk vissza
+    except Exception as e:
+        print(f"Nem sikerült lekérni a modelleket: {e}")
+        return "llama3-8b-8192"
+
+# Használat a hívásnál:
+active_model = get_valid_groq_model(client)
+
+response = client.chat.completions.create(
+    model=active_model,
+    messages=[{"role": "user", "content": felhasznalo_kerdese}]
+)
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
