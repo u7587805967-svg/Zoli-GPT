@@ -87,11 +87,6 @@ def get_valid_groq_model(client) -> str:
 # Használat a hívásnál:
 active_model = get_valid_groq_model(client)
 
-response = client.chat.completions.create(
-    model=active_model,
-    messages=[{"role": "user", "content": felhasznalo_kerdese}]
-)
-
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
     Kiszűri a magyar ragokat és toldalékokat a pontosabb kulcsszó-egyeztetéshez.
@@ -2520,6 +2515,14 @@ with tab_chat:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
                     response_placeholder.markdown(display_response)
+
+    felhasznalo_kerdese = st.chat_input("Írj egy üzenetet...")
+    if felhasznalo_kerdese:
+        response = client.chat.completions.create(
+            model=active_model,
+            messages=[{"role": "user", "content": felhasznalo_kerdese}]
+        )
+        st.write(response.choices[0].message.content)
                     
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
