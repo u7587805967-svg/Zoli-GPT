@@ -1572,7 +1572,6 @@ A következő Python kód hibára futott a Sandbox környezetben:
             
             img_res = httpx.get(image_url, timeout=20.0)
             if img_res.status_code != 200:
-                # Fallback sima képre, ha a letöltés nem sikerül
                 return image_url
                 
             base_image = Image.open(io.BytesIO(img_res.content))
@@ -1606,63 +1605,8 @@ A következő Python kód hibára futott a Sandbox környezetben:
             b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
             return f"data:image/gif;base64,{b64_gif}"
             
-        except Exception as e:
-            # Ha a GIF elszáll, még mindig visszaadhatjuk a sima statikus képet
-            return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux"
-        
-        try:
-            client = Groq(api_key=GROQ_API_KEY)
-            res = client.chat.completions.create(
-                model=text_model, 
-                messages=[{"role": "user", "content": f"Translate to English in 5 words max, dynamic scene: {clean_query}"}], 
-                timeout=10.0
-            )
-            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
-        except Exception: 
-            en_query = clean_query
-
-        try:
-            encoded_prompt = urllib.parse.quote(en_query)
-            image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
-            
-            img_res = httpx.get(image_url, timeout=20.0)
-            if img_res.status_code != 200:
-                return None
-                
-            base_image = Image.open(io.BytesIO(img_res.content))
-            
-            frames = []
-            width, height = base_image.size
-            
-            for i in range(15):
-                zoom_factor = 1.0 + (i * 0.006) # Finom közelítés
-                new_w = int(width / zoom_factor)
-                new_h = int(height / zoom_factor)
-                
-                left = (width - new_w) // 2
-                top = (height - new_h) // 2
-                right = left + new_w
-                bottom = top + new_h
-                
-                frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
-                frames.append(frame)
-            
-            output = io.BytesIO()
-            frames[0].save(
-                output,
-                format="GIF",
-                save_all=True,
-                append_images=frames[1:],
-                duration=100, # 100ms képkockánként
-                loop=0
-            )
-            
-            # Átalakítás Base64-é, így menthető az adatbázisodba is
-            b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
-            return f"data:image/gif;base64,{b64_gif}"
-            
         except Exception:
-            return None
+            return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux"
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
@@ -1670,7 +1614,8 @@ A következő Python kód hibára futott a Sandbox környezetben:
             client = Groq(api_key=GROQ_API_KEY)
             res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": prompts[mode]}], timeout=20.0)
             return res.choices[0].message.content
-        except Exception as e: return f"Hiba: {e}"
+        except Exception as e: 
+            return f"Hiba: {e}"
 
     def validate_url_safety(self, text: str) -> str:
         return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
@@ -1686,7 +1631,7 @@ A következő Python kód hibára futott a Sandbox környezetben:
             old_stdout = sys.stdout
             redirected_output = sys.stdout = io.StringIO()
             
-            loc = {}  # Helyes változódeklaráció az f-string helyett
+            loc = {}
             glb = safe_builtins.copy()
             glb['_print_'] = PrintCollector
             glb['_getattr_'] = getattr
