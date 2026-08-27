@@ -2262,7 +2262,6 @@ with tab_chat:
             
             try:
                 is_image_request = any(w in user_input.lower() for w in ["kép", "generál", "rajzol", "mutass", "illusztráció", "fotó"]) and not any(w in user_input.lower() for w in ["videó", "video", "elemzés", "elemezd"])
-                is_video_request = any(w in user_input.lower() for w in ["videó", "video", "animáció", "mozgás", "klip"])
                 
                 if is_image_request:
                     with st.spinner(" AI Képgenerálás..."):
@@ -2273,11 +2272,11 @@ with tab_chat:
                 
                 else:
                     start_time = time.perf_counter()
-                    
                     system_prompt = persona_prompts.get(persona, "Te egy precíz asszisztens vagy.")
                     context_addition = ""
                     web_sources_text = ""
                     
+                    # 1. AI ROUTER & KERESÉSEK
                     with st.status(" Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -2296,49 +2295,46 @@ with tab_chat:
                             use_med = plan_data.get("use_med", False)
                             med_query = plan_data.get("med_query", "")
                             agent_status.write(f" **Stratégia:** {plan_data.get('terv', 'Közvetlen válaszadás')}")
-                        except Exception:
-                            use_web = any(w in user_input.lower() for w in ["keress", "hírek"])
+                        except Exception as router_err:
+                            use_web = any(w in user_input.lower() for w in ["keress", "hírek", "friss"])
                             use_rag = True
                             use_med = any(w in user_input.lower() for w in ["fáj", "beteg", "tünet", "gyógyszer", "orvos"])
-                            med_query = "medical symptoms"
-                            agent_status.write("⚠️ Router hiba, fallback üzemmód aktív.")
+                            med_query = user_input
+                            agent_status.write(f"⚠️ Router hiba ({router_err}), fallback üzemmód aktív.")
 
-                        if use_rag:
-                            # ... (A meglévő RAG kódod marad itt) ...
-                            pass
-
-
+                        # Orvosi keresés
                         if use_med and med_query:
                             agent_status.update(label=" Hivatalos orvosi publikációk kutatása...")
                             med_results = ai_engine.search_medical_database(med_query)
-                            if "Hiba" not in med_results and "Nem találtam" not in med_results:
+                            if med_results and "Hiba" not in med_results and "Nem találtam" not in med_results:
                                 context_addition += f"\n\nFONTOS ORVOSI KONTEXTUS A EUROPE PMC ADATBÁZISBÓL (Ezt használd fel a válaszhoz, de figyelmeztesd a felhasználót, hogy forduljon orvoshoz):\n{med_results}"
                                 agent_status.write("✅ Tudományos orvosi cikkek beolvasva.")
                             else:
                                 agent_status.write(f"ℹ️ {med_results}")
 
-                        
+                        # RAG / Saját memória keresés
                         if use_rag:
                             agent_status.update(label=" Keresés a személyes emlékekben...")
                             rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
                             if rag_results:
-                                st.toast(" Releváns személyes emlékek megtalálva!", icon="§")
+                                st.toast(" Releváns személyes emlékek megtalálva!", icon="🧠")
                                 rag_context = "\n".join([f"[{res['source']}]: {res['text']}" for res in rag_results])
                                 context_addition += f"\n\nFONTOS BELSŐ MEMÓRIA ÉS DOKUMENTUM KONTEXTUS:\n{rag_context}"
                                 agent_status.write("✅ Releváns belső dokumentum részletek beolvasva.")
                             else:
                                 agent_status.write("ℹ️ Nem találtam idevágó adatot a belső dokumentumokban.")
 
+                        # Webes keresés
                         if use_web:
                             agent_status.update(label=" Webes elemzés folyamatban...")
-                            
                             web_results = ai_engine.advanced_deep_web_search(user_input)
-                            
                             if web_results and "nem tudom biztosan megmondani" not in web_results.lower() and "Hiba" not in web_results:
                                 context_addition += f"\n\n{web_results}"
                                 agent_status.write("✅ Webes kutatás és tényellenőrzés befejezve.")
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető, tényalapú eredményt.")
+
+                        # URL feldolgozás
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -2347,9 +2343,9 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
+                        # Self-RAG Validáció
                         agent_status.update(label=" Kontextus ellenőrzése (Self-RAG)...")
                         can_answer = True
-                        
                         if context_addition.strip(): 
                             try:
                                 client = Groq(api_key=GROQ_API_KEY)
@@ -2370,24 +2366,21 @@ with tab_chat:
                                     can_answer = False
                                     agent_status.write("⚠️ A letöltött források NEM tartalmazzák a pontos választ.")
                             except Exception:
-                                pass  # <-- EZ A SOR HIÁNYZOTT VAGY CSÚSZOTT EL!
+                                pass
 
                         agent_status.update(label="✨ Válasz generálása...", state="complete", expanded=False)
-
 
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
 
+                    # 2. ÜZENETEK ÉS IDŐZÓNA ELŐKÉSZÍTÉSE
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
 
-                        
-
-                    
-                    
-                    for msg in chat_history[-6:]:
-                        if msg["type"] == "text":
+                    # Előzmények hozzáadása (st.session_state.messages használatával)
+                    for msg in st.session_state.get("messages", [])[-6:]:
+                        if isinstance(msg, dict) and msg.get("role") in ["user", "assistant"]:
                             messages.append({"role": msg["role"], "content": msg["content"]})
-                    
+
                     if "active_vision_image" in st.session_state and TEXT_MODEL == "llama-3.2-11b-vision-preview":
                         base64_image = base64.b64encode(st.session_state.active_vision_image).decode('utf-8')
                         messages.append({
@@ -2399,7 +2392,7 @@ with tab_chat:
                         })
                     else:
                         messages.append({"role": "user", "content": user_input})
-                    
+
                     try:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
@@ -2408,8 +2401,8 @@ with tab_chat:
                         world_clocks = "Világóra (Aktuális idők):\n"
                         timezones = {
                             "London": "Europe/London",
-                            "New York": "America/New York",
-                            "Los Angeles": "America/Los Angeles",
+                            "New York": "America/New_York",
+                            "Los Angeles": "America/Los_Angeles",
                             "Tokió": "Asia/Tokyo",
                             "Sydney": "Australia/Sydney"
                         }
@@ -2431,6 +2424,7 @@ with tab_chat:
                     except Exception:
                         pass
 
+                    # 3. VÁLASZ GENERÁLÁSA STREAMINGGEL
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
                         for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
@@ -2439,7 +2433,8 @@ with tab_chat:
                     
                     if web_sources_text:
                         full_response += web_sources_text
-                        
+
+                    # 4. PARANCSOK ÉS WIDGETEK FELDOLGOZÁSA (EGYSZERI FUTTATÁS)
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
                     
@@ -2450,45 +2445,24 @@ with tab_chat:
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
-                    
-                    
+
+                    # Végleges válasz megjelenítése
                     response_placeholder.markdown(display_response)
-                    
+
+                    # Megnyitandó linkek
                     if urls_to_open:
                         for url in set(urls_to_open):
-                            js_code = f"""
-                            <script>
-                                window.open('{url}', '_blank');
-                            </script>
-                            """
+                            js_code = f"<script>window.open('{url}', '_blank');</script>"
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
-                    
+
+                    # Útvonal widget
                     if route_match:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
-                    music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
-                    if music_match:
-                        display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
-                        
-                    response_placeholder.markdown(display_response)
-                    
-                    if urls_to_open:
-                        for url in set(urls_to_open):
-                            js_code = f"""
-                            <script>
-                                window.open('{url}', '_blank');
-                            </script>
-                            """
-                            st.components.v1.html(js_code, height=0)
-                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
-                    
-                    if route_match:
-                        start_point = route_match.group(1).strip()
-                        end_point = route_match.group(2).strip()
-                        show_route_widget(start_point, end_point)
-                        
+
+                    # Zene lejátszása
                     if music_match:
                         search_query = music_match.group(1).strip()
                         with st.spinner(f" Zene keresése: {search_query}..."):
@@ -2498,10 +2472,7 @@ with tab_chat:
                                     if results:
                                         video_url = results[0].get('content', '')
                                         if "youtube" in video_url or "youtu.be" in video_url:
-                                            # YouTube videó ID kinyerése
-                                            import re
                                             yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
-                                            
                                             if yt_id_match:
                                                 video_id = yt_id_match.group(1)
                                                 autoplay_html = f"""
@@ -2524,8 +2495,7 @@ with tab_chat:
                             except Exception as e:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
-                    response_placeholder.markdown(display_response)
-                    
+                    # Latency & Logolás
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
                     try:
