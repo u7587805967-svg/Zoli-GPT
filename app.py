@@ -2580,6 +2580,10 @@ with tab_chat:
 class FactCheckResult(BaseModel):
     is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
     feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
+try:
+    eredmeny = adatok_beolvasasa()
+except Exception as e:
+    print(f"Hiba a beolvasás során: {e}")
 
 def fact_checker_node(client, question: str, answer: str, context: str) -> bool:
     instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
