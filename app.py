@@ -1122,21 +1122,29 @@ GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 @st.cache_data(ttl=3600)
 def fetch_groq_models(api_key: str) -> list[str]:
     """
-    Dinamikusan lekéri a Groq-on elérhető aktív, ingyenes LLM modelleket.
-    1 órán át (3600 mp) gyorsítótárazza az eredményt.
+    Dinamikusan lekéri a Groq-on elérhető LLM modelleket, kiszűrve a fizetős 
+    és inaktív/nem kompatibilis opciókat. Fallback: qwen/qwen3.8-27b és groq/compound.
     """
+    fallback_models = ["qwen/qwen3.8-27b", "groq/compound"]
+    
     if not api_key:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        return fallback_models
+        
     try:
         client = Groq(api_key=api_key)
         models_data = client.models.list()
-        available_models = [
-            m.id for m in models_data.data 
-            if getattr(m, "active", True)
-        ]
-        return available_models if available_models else ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        
+        valid_models = []
+        for m in models_data.data:
+            is_active = getattr(m, "active", True)
+            is_paid = getattr(m, "is_paid", False)
+            
+            if is_active and not is_paid:
+                valid_models.append(m.id)
+                
+        return valid_models if valid_models else fallback_models
     except Exception:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        return fallback_models
 
 # --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
