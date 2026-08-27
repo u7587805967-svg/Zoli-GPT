@@ -47,7 +47,6 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
-import chromadb
 from sentence_transformers import CrossEncoder
 
 
