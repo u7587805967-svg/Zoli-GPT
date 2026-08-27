@@ -2557,31 +2557,6 @@ with tab_chat:
                             except Exception as e:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
-class FactCheckResult(BaseModel):
-    is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
-    feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
-except Exception as e:
-    logger.error(f"Error: {e}")
-
-def fact_checker_node(client, question: str, answer: str, context: str) -> bool:
-    instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
-    prompt = f"""
-    Feladat: Döntsd el, hogy az alábbi kontextus alátámasztja-e a választ!
-    Kérdés: {question}
-    Válasz: {answer}
-    Kontextus: {context}
-    """
-    try:
-        res = instructor_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            response_model=FactCheckResult,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0
-        )
-        return res.is_supported
-    except Exception:
-        return True
-
                     response_placeholder.markdown(display_response)
                     
                     end_time = time.perf_counter()
