@@ -2543,47 +2543,43 @@ with tab_chat:
                         show_route_widget(start_point, end_point)
                         
                     if music_match:
-                        search_query = music_match.group(1).strip()
-                        with st.spinner(f" Zene keresése: {search_query}..."):
-                            try:
-                                with DDGS() as ddgs:
-                                    results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
-                                    if results:
-                                        video_url = results[0].get('content', '')
-                                        if "youtube" in video_url or "youtu.be" in video_url:
-                                            # YouTube videó ID kinyerése
-                                            import re
-                                            yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
-                                            
-                                            if yt_id_match:
-                                                video_id = yt_id_match.group(1)
-                                                autoplay_html = f"""
-                                                    <iframe width="100%" height="315" 
-                                                        src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
-                                                        frameborder="0" 
-                                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                                        allowfullscreen>
-                                                    </iframe>
-                                                """
-                                                st.components.v1.html(autoplay_html, height=315)
-                                                st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
-                                            else:
-                                                st.video(video_url)
-                                                st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
-                                        else:
-                                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
-                                    else:
-                                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
-                            except Exception as e:
-                                st.error(f"Hiba a zene keresése közben: {e}")
+        search_query = music_match.group(1).strip()
+        with st.spinner(f" Zene keresése: {search_query}..."):
+            try:
+                with DDGS() as ddgs:
+                    results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
+                    if results:
+                        video_url = results[0].get('content', '')
+                        if "youtube" in video_url or "youtu.be" in video_url:
+                            import re
+                            yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
+                            
+                            if yt_id_match:
+                                video_id = yt_id_match.group(1)
+                                autoplay_html = f"""
+                                    <iframe width="100%" height="315" 
+                                        src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
+                                        frameborder="0" 
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowfullscreen>
+                                    </iframe>
+                                """
+                                st.components.v1.html(autoplay_html, height=315)
+                                st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
+                            else:
+                                st.video(video_url)
+                                st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
+                        else:
+                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
+                    else:
+                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
+            except Exception as e:
+                st.error(f"Hiba a zene keresése közben: {e}")
 
 class FactCheckResult(BaseModel):
     is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
     feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
-try:
-    eredmeny = adatok_beolvasasa()
-except Exception as e:
-    print(f"Hiba a beolvasás során: {e}")
+
 
 def fact_checker_node(client, question: str, answer: str, context: str) -> bool:
     instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
