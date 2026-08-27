@@ -2125,7 +2125,6 @@ if is_admin:
             total_cost = df_tok['cost'].sum()
             
             
-            }
             available_models = fetch_groq_models(GROQ_API_KEY)
             max_allowed_tokens = 500000 if TEXT_MODEL in available_models else 6000
             
