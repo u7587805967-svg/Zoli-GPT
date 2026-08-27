@@ -2523,65 +2523,42 @@ with tab_chat:
                         show_route_widget(start_point, end_point)
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
                     if music_match:
-                        display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
-                        
-                    response_placeholder.markdown(display_response)
-                    
-                    if urls_to_open:
-                        for url in set(urls_to_open):
-                            js_code = f"""
-                            <script>
-                                window.open('{url}', '_blank');
-                            </script>
-                            """
-                            st.components.v1.html(js_code, height=0)
-                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
-                    
-                    if route_match:
-                        start_point = route_match.group(1).strip()
-                        end_point = route_match.group(2).strip()
-                        show_route_widget(start_point, end_point)
-                        
-                    if music_match:
-        search_query = music_match.group(1).strip()
-        with st.spinner(f" Zene keresése: {search_query}..."):
-            try:
-                with DDGS() as ddgs:
-                    results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
-                    if results:
-                        video_url = results[0].get('content', '')
-                        if "youtube" in video_url or "youtu.be" in video_url:
-                            import re
-                            yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
-                            
-                            if yt_id_match:
-                                video_id = yt_id_match.group(1)
-                                autoplay_html = f"""
-                                    <iframe width="100%" height="315" 
-                                        src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
-                                        frameborder="0" 
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                        allowfullscreen>
-                                    </iframe>
-                                """
-                                st.components.v1.html(autoplay_html, height=315)
-                                st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
-                            else:
-                                st.video(video_url)
-                                st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
-                        else:
-                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
-                    else:
-                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
-            except Exception as e:
-                st.error(f"Hiba a zene keresése közben: {e}")
+                        search_query = music_match.group(1).strip()
+                        with st.spinner(f" Zene keresése: {search_query}..."):
+                            try:
+                                with DDGS() as ddgs:
+                                    results = list(ddgs.videos(search_query + " youtube official audio", max_results=1))
+                                    if results:
+                                        video_url = results[0].get('content', '')
+                                        if "youtube" in video_url or "youtu.be" in video_url:
+                                            import re
+                                            yt_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
+                                            
+                                            if yt_id_match:
+                                                video_id = yt_id_match.group(1)
+                                                autoplay_html = f"""
+                                                    <iframe width="100%" height="315" 
+                                                        src="https://www.youtube.com/embed/{video_id}?autoplay=1&mute=0" 
+                                                        frameborder="0" 
+                                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                                        allowfullscreen>
+                                                    </iframe>
+                                                """
+                                                st.components.v1.html(autoplay_html, height=315)
+                                                st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
+                                            else:
+                                                st.video(video_url)
+                                                st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
+                                        else:
+                                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
+                                    else:
+                                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
+                            except Exception as e:
+                                st.error(f"Hiba a zene keresése közben: {e}")
 
 class FactCheckResult(BaseModel):
-except Exception as e:
-    print(f"Hiba történt: {e}")
     is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
     feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
-
 
 def fact_checker_node(client, question: str, answer: str, context: str) -> bool:
     instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
