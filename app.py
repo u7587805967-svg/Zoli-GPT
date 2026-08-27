@@ -2515,7 +2515,7 @@ with tab_chat:
                             </script>
                             """
                             st.components.v1.html(js_code, height=0)
-                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
+                            st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*)")        
                     
                     if route_match:
                         start_point = route_match.group(1).strip()
@@ -2547,13 +2547,13 @@ with tab_chat:
                                                 """
                                                 st.components.v1.html(autoplay_html, height=315)
                                                 st.success(f" Automatikus lejátszás: **{results[0].get('title', search_query)}**")
-                                            else:
-                                                st.video(video_url)
-                                                st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
                                         else:
-                                            st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
+                                            st.video(video_url)
+                                            st.success(f" Lejátszás: **{results[0].get('title', search_query)}**")
                                     else:
-                                        st.warning(f"Nem találtam ilyen zenét: {search_query}")
+                                        st.warning("Nem találtam biztonságos YouTube linket ehhez a zenéhez.")
+                                else:
+                                    st.warning(f"Nem találtam ilyen zenét: {search_query}")
                             except Exception as e:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
