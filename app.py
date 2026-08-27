@@ -1686,7 +1686,7 @@ A következő Python kód hibára futott a Sandbox környezetben:
             old_stdout = sys.stdout
             redirected_output = sys.stdout = io.StringIO()
             
-            f"loc = {{}}"
+            loc = {}  # Helyes változódeklaráció az f-string helyett
             glb = safe_builtins.copy()
             glb['_print_'] = PrintCollector
             glb['_getattr_'] = getattr
