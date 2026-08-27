@@ -2577,6 +2577,8 @@ with tab_chat:
                 st.error(f"Hiba a zene keresése közben: {e}")
 
 class FactCheckResult(BaseModel):
+except Exception as e:
+    print(f"Hiba történt: {e}")
     is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
     feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
 
