@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import streamlit as st
 import os
 import datetime
@@ -1515,33 +1513,6 @@ class AsyncAIEngine:
         except Exception as e:
             return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
 
-def execute_python_sandbox_with_auto_correct(self, code: str, text_model: str, max_retries: int = 3) -> str:
-        """
-        Futtatja a kódot a sandboxban. Hiba esetén a modellt kéri meg a javításra, majd újrapróbálja.
-        """
-        current_code = code
-        for attempt in range(max_retries):
-            result = self.execute_python_sandbox(current_code)
-            
-            if not result.startswith("Hiba a biztonságos futtatás során"):
-                if attempt > 0:
-                    return f"✅ **Kód sikeresen javítva a(z) {attempt}. próbálkozásra!**\n\n{result}"
-                return result
-            
-            if not GROQ_API_KEY:
-                return result
-                
-            try:
-                client = Groq(api_key=GROQ_API_KEY)
-                fix_prompt = f"""
-A következő Python kód hibára futott a Sandbox környezetben:
-```python
-{current_code}
-"""
-
-    def previous_method(self):
-        return True  # Az előző metódus szabályosan le van zárva
-
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
@@ -1575,6 +1546,7 @@ A következő Python kód hibára futott a Sandbox környezetben:
             
             img_res = httpx.get(image_url, timeout=20.0)
             if img_res.status_code != 200:
+                # Fallback sima képre, ha a letöltés nem sikerül
                 return image_url
                 
             base_image = Image.open(io.BytesIO(img_res.content))
@@ -1608,8 +1580,63 @@ A következő Python kód hibára futott a Sandbox környezetben:
             b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
             return f"data:image/gif;base64,{b64_gif}"
             
-        except Exception:
+        except Exception as e:
+            # Ha a GIF elszáll, még mindig visszaadhatjuk a sima statikus képet
             return f"https://image.pollinations.ai/p/{urllib.parse.quote(en_query)}?width=1024&height=1024&seed={int(time.time())}&model=flux"
+        
+        try:
+            client = Groq(api_key=GROQ_API_KEY)
+            res = client.chat.completions.create(
+                model=text_model, 
+                messages=[{"role": "user", "content": f"Translate to English in 5 words max, dynamic scene: {clean_query}"}], 
+                timeout=10.0
+            )
+            en_query = res.choices[0].message.content.strip().replace('"', '').replace("'", "")
+        except Exception: 
+            en_query = clean_query
+
+        try:
+            encoded_prompt = urllib.parse.quote(en_query)
+            image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=576&nologo=true"
+            
+            img_res = httpx.get(image_url, timeout=20.0)
+            if img_res.status_code != 200:
+                return None
+                
+            base_image = Image.open(io.BytesIO(img_res.content))
+            
+            frames = []
+            width, height = base_image.size
+            
+            for i in range(15):
+                zoom_factor = 1.0 + (i * 0.006) # Finom közelítés
+                new_w = int(width / zoom_factor)
+                new_h = int(height / zoom_factor)
+                
+                left = (width - new_w) // 2
+                top = (height - new_h) // 2
+                right = left + new_w
+                bottom = top + new_h
+                
+                frame = base_image.crop((left, top, right, bottom)).resize((width, height), Image.Resampling.LANCZOS)
+                frames.append(frame)
+            
+            output = io.BytesIO()
+            frames[0].save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=100, # 100ms képkockánként
+                loop=0
+            )
+            
+            # Átalakítás Base64-é, így menthető az adatbázisodba is
+            b64_gif = base64.b64encode(output.getvalue()).decode("utf-8")
+            return f"data:image/gif;base64,{b64_gif}"
+            
+        except Exception:
+            return None
 
     def post_process_text(self, text: str, text_model: str, mode: str) -> str:
         prompts = {"translate": f"Translate to English:\n\n{text}", "summary": f"Készíts összefoglalót magyarul:\n\n{text}"}
@@ -1617,8 +1644,7 @@ A következő Python kód hibára futott a Sandbox környezetben:
             client = Groq(api_key=GROQ_API_KEY)
             res = client.chat.completions.create(model=text_model, messages=[{"role": "user", "content": prompts[mode]}], timeout=20.0)
             return res.choices[0].message.content
-        except Exception as e: 
-            return f"Hiba: {e}"
+        except Exception as e: return f"Hiba: {e}"
 
     def validate_url_safety(self, text: str) -> str:
         return re.sub(r'(http://\S+)', '⚠️ [NEM BIZTONSÁGOS LINKEK ELTÁVOLÍTVA]', text)
@@ -1941,7 +1967,7 @@ chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_stat
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
-    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = " Másolva!"; setTimeout(function() {{ btn.innerText = "Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(14, 165, 233, 0.15); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">Másolás</button>"""
+    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = " Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(14, 165, 233, 0.15); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">📋 Másolás</button>"""
     st.components.v1.html(js, height=38)
 
 def generate_docx_download(text: str) -> bytes:
