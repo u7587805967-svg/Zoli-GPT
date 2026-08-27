@@ -1538,6 +1538,7 @@ def execute_python_sandbox_with_auto_correct(self, code: str, text_model: str, m
 A következő Python kód hibára futott a Sandbox környezetben:
 ```python
 {current_code}
+"""
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
