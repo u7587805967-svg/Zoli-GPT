@@ -2141,7 +2141,7 @@ if is_admin:
         st.info("Futtass egy gyors állapotfelmérést a rendszer kritikus elemein (Adatbázis, API-k, LLM válaszidő).")
         
         if st.button(" Diagnosztika Futtatása", use_container_width=True, key="run_diagnostics_btn"):
-    with st.status("Diagnosztika folyamatban...", expanded=True) as diag_status:
+        with st.status("Diagnosztika folyamatban...", expanded=True) as diag_status:
         
         st.write(" Adatbázis kapcsolat tesztelése...")
         try:
