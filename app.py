@@ -1531,7 +1531,6 @@ def execute_python_sandbox_with_auto_correct(self, code: str, text_model: str, m
             if not GROQ_API_KEY:
                 return result
                 
-            # Hiba esetén automatikus korrekció kérése az LLM-től
             try:
                 client = Groq(api_key=GROQ_API_KEY)
                 fix_prompt = f"""
@@ -1539,6 +1538,9 @@ A következő Python kód hibára futott a Sandbox környezetben:
 ```python
 {current_code}
 """
+
+    def previous_method(self):
+        return True  # Az előző metódus szabályosan le van zárva
 
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
