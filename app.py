@@ -47,6 +47,10 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
+import instructor
+from pydantic import BaseModel, Field
+import chromadb
+from sentence_transformers import CrossEncoder
 
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
@@ -90,9 +94,66 @@ def hibrid_rrf_rangsorolas(vector_results: list, bm25_results: list, k: int = 60
     sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return [all_docs[doc_id] for doc_id, _ in sorted_docs]
 
+class SearchQueries(BaseModel):
+    queries: list[str] = Field(description="Pontosan 3 eltérő keresőkifejezés weges kereséshez.")
+
+def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_name: str = "llama-3.1-8b-instant") -> list[str]:
+    # A Groq kliens felbővítése az Instructor-ral
+    instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
+    most = datetime.datetime.now()
+    
+    prompt = f"""
+    Ma {most.strftime('%Y-%m-%d')} van.
+    Hozz létre pontosan 3 eltérő, rövid keresőkifejezést az alábbi kérdéshez.
+    Kérdés: {felhasznalo_kerdese}
+    """
+    
+    try:
+        # Garantált Pydantic objektum visszatérés
+        response = instructor_client.chat.completions.create(
+            model=model_name,
+            response_model=SearchQueries,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1
+        )
+        return response.queries[:3]
+    except Exception as e:
+        return [felhasznalo_kerdese]
+
+chroma_client = chromadb.PersistentClient(path="./chroma_db_storage")
+# Dedikált Reranker modell betöltése (magyarul is kiváló)
+reranker_model = CrossEncoder('BAAI/bge-reranker-v2-m3')
+
+def ingest_document_chroma(text: str, doc_name: str, username: str):
+    # Egyedi kollekció a felhasználónak
+    collection = chroma_client.get_or_create_collection(name=f"user_{username}")
+    
+    # A korábban meglévő smart_chunk_text függvényed használata
+    chunks = ai_engine.smart_chunk_text(text, 800, 300) 
+    
+    # Gyors és beépített vektorizálás
+    collection.add(
+        documents=chunks,
+        metadatas=[{"source": doc_name} for _ in chunks],
+        ids=[f"{doc_name}_{i}" for i in range(len(chunks))]
+    )
+
+def hibrid_kereses_es_reranking(query: str, username: str, top_k: int = 4) -> list:
+    collection = chroma_client.get_or_create_collection(name=f"user_{username}")
+    
+    raw_results = collection.query(query_texts=[query], n_results=20)
+    docs = raw_results['documents'][0]
+    
+    if not docs: return []
+    
+    sentence_pairs = [[query, doc] for doc in docs]
+    scores = reranker_model.predict(sentence_pairs)
+    
+    scored_docs = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
+    return [doc for score, doc in scored_docs[:top_k] if score > 0.05]
+
 @st.cache_resource
 def get_embedding_model():
-    # Ingyenes, gyors, és érti a magyar nyelvet
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 try:
@@ -2515,6 +2576,29 @@ with tab_chat:
                                         st.warning(f"Nem találtam ilyen zenét: {search_query}")
                             except Exception as e:
                                 st.error(f"Hiba a zene keresése közben: {e}")
+
+class FactCheckResult(BaseModel):
+    is_supported: bool = Field(description="Igaz, ha a kontextus egyértelműen alátámasztja a választ.")
+    feedback: str = Field(description="Rövid, egysoros indoklás az eredményről.")
+
+def fact_checker_node(client, question: str, answer: str, context: str) -> bool:
+    instructor_client = instructor.from_groq(client, mode=instructor.Mode.JSON)
+    prompt = f"""
+    Feladat: Döntsd el, hogy az alábbi kontextus alátámasztja-e a választ!
+    Kérdés: {question}
+    Válasz: {answer}
+    Kontextus: {context}
+    """
+    try:
+        res = instructor_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            response_model=FactCheckResult,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0
+        )
+        return res.is_supported
+    except Exception:
+        return True
 
                     response_placeholder.markdown(display_response)
                     
