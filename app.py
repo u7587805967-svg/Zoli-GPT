@@ -1120,30 +1120,23 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 @st.cache_data(ttl=3600)
-def fetch_groq_models(client):
+def fetch_groq_models(api_key: str) -> list[str]:
+    """
+    Dinamikusan lekéri a Groq-on elérhető aktív, ingyenes LLM modelleket.
+    1 órán át (3600 mp) gyorsítótárazza az eredményt.
+    """
+    if not api_key:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     try:
-        response = client.models.list()
-        
-        AVOID_KEYWORDS = ["whisper", "guard", "safetensors"]
-        
-        valid_models = []
-        for model in response.data:
-            model_id = model.id.lower()
-            
-            is_active = getattr(model, "active", True)
-            
-            if not is_active:
-                continue
-                
-            if any(keyword in model_id for keyword in AVOID_KEYWORDS):
-                continue
-            
-            valid_models.append(model.id)
-
-        return sorted(valid_models) if valid_models else [m.id for m in response.data]
-
-    except Exception as e:
-        return []
+        client = Groq(api_key=api_key)
+        models_data = client.models.list()
+        available_models = [
+            m.id for m in models_data.data 
+            if getattr(m, "active", True)
+        ]
+        return available_models if available_models else ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    except Exception:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 # --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
