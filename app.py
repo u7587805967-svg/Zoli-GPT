@@ -2522,7 +2522,7 @@ with tab_chat:
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
                     music_match = re.search(r'\[PLAY_MUSIC:\s*([^\]]+)\]', display_response)
-                    if music_match:
+                        if music_match:
                         search_query = music_match.group(1).strip()
                         with st.spinner(f" Zene keresése: {search_query}..."):
                             try:
