@@ -1993,7 +1993,7 @@ chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_stat
 
 def inject_copy_button(text: str, unique_key: str):
     escaped = base64.b64encode(text.encode('utf-8')).decode('utf-8')
-    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = " Másolva!"; setTimeout(function() {{ btn.innerText = "📋 Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(14, 165, 233, 0.15); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">📋 Másolás</button>"""
+    js = f"""<script>function copy_{unique_key}() {{ navigator.clipboard.writeText(atob("{escaped}")); var btn = document.getElementById("btn_{unique_key}"); btn.innerText = " Másolva!"; setTimeout(function() {{ btn.innerText = "Másolás"; }}, 2000); }}</script><button id="btn_{unique_key}" onclick="copy_{unique_key}()" style="background-color: rgba(14, 165, 233, 0.15); color: #7dd3fc; border: 1px solid rgba(14, 165, 233, 0.4); padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px; font-weight:500; transition: all 0.2s;">Másolás</button>"""
     st.components.v1.html(js, height=38)
 
 def generate_docx_download(text: str) -> bytes:
