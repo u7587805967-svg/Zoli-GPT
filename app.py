@@ -1521,6 +1521,11 @@ class AsyncAIEngine:
         except Exception as e:
             return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
 
+response = client.chat.completions.create(
+    model="qwen/qwen3.8-27b",
+    messages=st.session_state.messages[-6:]
+)
+
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
