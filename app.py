@@ -122,7 +122,7 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
     # Ha nincs megadva modell, az első elérhető modellt használja
     if not model_name:
         available = fetch_groq_models(GROQ_API_KEY)
-        model_name = available[0] if available else "llama-3.1-8b-instant"
+        model_name = available[0] if available else "groq/compound"
 
     try:
         prompt = f"""
@@ -456,7 +456,7 @@ def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_konte
 
     if not model_name:
         available = fetch_groq_models(GROQ_API_KEY)
-        model_name = available[0] if available else "llama-3.3-70b-versatile"
+        model_name = available[0] if available else "qwen/qwen3.8-27b"
 
     system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
@@ -2281,7 +2281,7 @@ with tab_chat:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
                             routing_res = client.chat.completions.create(
-                                model="llama-3.1-8b-instant",
+                                model="groq/compound",
                                 messages=[
                                     {"role": "system", "content": "Te egy AI router vagy. Dönts el a kérdésből: kell-e webes keresés (hírek, napi infók), belső adatbázis (RAG), vagy TUDOMÁNYOS ORVOSI ADATBÁZIS (betegségek, gyógyszerek, anatómia, tünetek). Válaszolj tiszta JSON objektummal: {\"use_web\": true/false, \"use_rag\": true/false, \"use_med\": true/false, \"med_query\": \"angol nyelvű keresőszó az orvosi adatbázishoz, ha kell\", \"terv\": \"rövid indoklás\"}"},
                                     {"role": "user", "content": user_input}
@@ -2356,7 +2356,7 @@ with tab_chat:
                                     f"Ne magyarázd meg, csak egy szót írj."
                                 )
                                 val_res = client.chat.completions.create(
-                                    model="llama-3.1-8b-instant",
+                                    model="groq/compound",
                                     messages=[{"role": "user", "content": validation_prompt}],
                                     temperature=0.0,
                                     max_tokens=10
