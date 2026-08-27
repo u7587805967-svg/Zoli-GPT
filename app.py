@@ -136,7 +136,7 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
         Kérdés: {felhasznalo_kerdese}
         """
         response = client.chat.completions.create(
-            model=model_name,
+            model=openai/gpt-oss-120b,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=150
