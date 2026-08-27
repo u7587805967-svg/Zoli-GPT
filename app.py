@@ -1120,31 +1120,23 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 @st.cache_data(ttl=3600)
-def fetch_groq_models(client):
+def fetch_groq_models(api_key: str) -> list[str]:
+    """
+    Dinamikusan lekéri a Groq-on elérhető aktív, ingyenes LLM modelleket.
+    1 órán át (3600 mp) gyorsítótárazza az eredményt.
+    """
+    if not api_key:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     try:
-        response = client.models.list()
-        
-        AVOID_KEYWORDS = ["whisper", "guard", "safetensors"]
-        
-        valid_models = []
-        for model in response.data:
-            model_id = model.id.lower()
-            
-            if not getattr(model, "active", True):
-                continue
-                
-            if any(keyword in model_id for keyword in AVOID_KEYWORDS):
-                continue
-            
-            valid_models.append(model.id)
-
-        if valid_models:
-            return sorted(valid_models)
-            
-        return ["qwen/qwen3.8-27b", "groq/compound-mini"]
-
+        client = Groq(api_key=api_key)
+        models_data = client.models.list()
+        available_models = [
+            m.id for m in models_data.data 
+            if getattr(m, "active", True)
+        ]
+        return available_models if available_models else ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     except Exception:
-        return ["qwen/qwen3.8-27b", "groq/compound-mini"]
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 # --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
@@ -2149,44 +2141,88 @@ if is_admin:
         st.info("Futtass egy gyors állapotfelmérést a rendszer kritikus elemein (Adatbázis, API-k, LLM válaszidő).")
         
         if st.button(" Diagnosztika Futtatása", use_container_width=True, key="run_diagnostics_btn"):
-            with st.status("Diagnosztika folyamatban...", expanded=True) as diag_status:
-                
-                
-                st.write(" Adatbázis kapcsolat tesztelése...")
-                try:
-                    with db_repo._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT 1")
-                    st.success("✅ Adatbázis kapcsolat: Stabil és válaszol.")
-                except Exception as e:
-                    st.error(f"❌ Adatbázis hiba: {e}")
-                
-                
-                st.write(" API kulcsok állapotának lekérdezése...")
-                if GROQ_API_KEY:
-                    st.success("✅ Groq API Kulcs: Aktív")
-                else:
-                    st.error("❌ Groq API Kulcs: Hiányzik!")
-                
-                
-                st.write(f" 'Zoli' ({TEXT_MODEL}) agykapacitásának pingelése...")
-                if GROQ_API_KEY:
-                    start_time = time.time()
-                    try:
-                        client = Groq(api_key=GROQ_API_KEY)
-                        # Egy minimális kérés a modell válaszidejének mérésére
-                        client.chat.completions.create(
-                            model=TEXT_MODEL,
-                            messages=[{"role": "user", "content": "ping"}],
-                            max_tokens=2,
-                            timeout=10.0
-                        )
-                        elapsed = time.time() - start_time
-                        st.success(f"✅ Zoli válaszideje: {elapsed:.3f} másodperc")
-                    except Exception as e:
-                        st.error(f"❌ Zoli (LLM) ping hiba: {e}")
-                        
-                diag_status.update(label="✅ Diagnosztika befejeződött!", state="complete", expanded=False)
+    with st.status("Diagnosztika folyamatban...", expanded=True) as diag_status:
+        
+        # 1. EREDETI: Adatbázis teszt
+        st.write(" Adatbázis kapcsolat tesztelése...")
+        try:
+            with db_repo._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+            st.success("✅ Adatbázis kapcsolat: Stabil és válaszol.")
+        except Exception as e:
+            st.error(f"❌ Adatbázis hiba: {e}")
+        
+        # 2. EREDETI: API kulcs állapot
+        st.write(" API kulcsok állapotának lekérdezése...")
+        if GROQ_API_KEY:
+            st.success("✅ Groq API Kulcs: Aktív")
+        else:
+            st.error("❌ Groq API Kulcs: Hiányzik!")
+        
+        # 3. EREDETI: LLM Ping
+        st.write(f" 'Zoli' ({TEXT_MODEL}) agykapacitásának pingelése...")
+        if GROQ_API_KEY:
+            start_time = time.time()
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                client.chat.completions.create(
+                    model=TEXT_MODEL,
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=2,
+                    timeout=10.0
+                )
+                elapsed = time.time() - start_time
+                st.success(f"✅ Zoli válaszideje: {elapsed:.3f} másodperc")
+            except Exception as e:
+                st.error(f"❌ Zoli (LLM) ping hiba: {e}")
+
+        # 4. ÚJ: Rendszer erőforrások (CPU, RAM, Tárhely)
+        st.write("🖥️ Rendszererőforrások és hardver ellenőrzése...")
+        try:
+            import psutil
+            import shutil
+
+            mem = psutil.virtual_memory()
+            disk = shutil.disk_usage("/")
+            cpu_usage = psutil.cpu_percent(interval=0.1)
+
+            st.success(
+                f"✅ CPU Terheltség: {cpu_usage}% | "
+                f"RAM: {round(mem.available / (1024**3), 2)} GB szabad / {round(mem.total / (1024**3), 2)} GB | "
+                f"Tárhely: {round(disk.free / (1024**3), 2)} GB szabad"
+            )
+        except Exception as e:
+            st.warning(f"⚠️ Erőforrások lekérdezési hiba: {e}")
+
+        # 5. ÚJ: Internet / Hálózati kapcsolat tesztelése
+        st.write("🌐 Internetkapcsolat tesztelése...")
+        try:
+            import httpx
+            res = httpx.get("https://1.1.1.1", timeout=3.0)
+            if res.status_code == 200:
+                st.success("✅ Hálózati elérés: Online (Cloudflare DNS válaszol)")
+            else:
+                st.warning(f"⚠️ Korlátozott hálózati válasz: HTTP {res.status_code}")
+        except Exception as e:
+            st.error(f"❌ Hálózati kapcsolat hiba: {e}")
+
+        # 6. ÚJ: Kritikus Python csomagok ellenőrzése
+        st.write("📦 Rendszerfüggőségek ellenőrzése...")
+        required_pkgs = ["streamlit", "groq", "httpx", "duckduckgo_search", "bs4", "edge_tts"]
+        missing_pkgs = []
+        for pkg in required_pkgs:
+            try:
+                __import__(pkg)
+            except ImportError:
+                missing_pkgs.append(pkg)
+
+        if not missing_pkgs:
+            st.success("✅ Minden szükséges Python modul elérhető.")
+        else:
+            st.error(f"❌ Hiányzó modulok: {', '.join(missing_pkgs)}")
+            
+        diag_status.update(label="✅ Diagnosztika befejeződött!", state="complete", expanded=False)
 
 # ---  CHAT INTERFACE ---
 with tab_chat:
