@@ -114,15 +114,16 @@ HUNGARIAN_STOPWORDS = {
     "ebben", "ebbol", "arról", "melyek", "szerint", "után", "során"
 }
 
-def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list[str]:
-    """
-    Query Fan-Out + Időtudatos kontextus:
-    A felhasználó kérdését 3 független, pontos keresési kulcsszósorozatra bontja ki.
-    """
+def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_name: str = None) -> list[str]:
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y-%m-%d")
     aktualis_ev = most.year
     
+    # Ha nincs megadva modell, az első elérhető modellt használja
+    if not model_name:
+        available = fetch_groq_models(GROQ_API_KEY)
+        model_name = available[0] if available else "llama-3.1-8b-instant"
+
     try:
         prompt = f"""
         Ma {aktualis_datum} van ({aktualis_ev}. év).
@@ -135,7 +136,7 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str) -> list
         Kérdés: {felhasznalo_kerdese}
         """
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=150
@@ -449,12 +450,13 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     return "\n\n".join(kontextus_blokkok)
 
 
-def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = ""):
-    """
-    Többlépcsős (Chain-of-Thought) precíziós generálás.
-    """
+def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "", model_name: str = None):
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
+
+    if not model_name:
+        available = fetch_groq_models(GROQ_API_KEY)
+        model_name = available[0] if available else "llama-3.3-70b-versatile"
 
     system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
@@ -472,25 +474,19 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 
 3. **Stílus:**
    - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
-
-{doc_kontextus if doc_kontextus else "Nincs feltöltött dokumentum kontextus."}
-
---- RENDELKEZÉSRE ÁLLÓ WEBES KERESÉSI KONTEXTUS ---
-{web_kontextus if web_kontextus else "Nincs webes keresési kontextus."}
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=model_name,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": felhasznalo_kerdese}
         ],
-        temperature=0.1,  # Alacsony hőmérséklet a hallucinációk minimálisra csökkentéséhez
-        max_tokens=3000   # Bővített válaszhossz a részletes magyarázatokhoz
+        temperature=0.1,
+        max_tokens=3000
     )
 
     return response.choices[0].message.content
-
 
 
 
@@ -1123,6 +1119,25 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
+@st.cache_data(ttl=3600)
+def fetch_groq_models(api_key: str) -> list[str]:
+    """
+    Dinamikusan lekéri a Groq-on elérhető aktív, ingyenes LLM modelleket.
+    1 órán át (3600 mp) gyorsítótárazza az eredményt.
+    """
+    if not api_key:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    try:
+        client = Groq(api_key=api_key)
+        models_data = client.models.list()
+        available_models = [
+            m.id for m in models_data.data 
+            if getattr(m, "active", True)
+        ]
+        return available_models if available_models else ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    except Exception:
+        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
 # --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
     def __init__(self, db_repo: DatabaseRepository, config: AppConfig):
@@ -1131,7 +1146,7 @@ class AsyncAIEngine:
 
     @staticmethod
     def get_available_models() -> list:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.2-11b-vision-preview", "llama-3.2-3b-preview", "llama-3.2-11b-text-preview"]
+        return fetch_groq_models(GROQ_API_KEY)
 
     def compute_simple_tfidf_vector(self, text: str) -> list:
         cleaned = re.sub(r'[^\w\s]', '', text.lower())
@@ -2109,14 +2124,10 @@ if is_admin:
             total_tokens = df_tok['tokens'].sum()
             total_cost = df_tok['cost'].sum()
             
-            model_limits = {
-                "llama-3.3-70b-versatile": 100000,
-                "llama-3.1-8b-instant": 500000,
-                "llama-3.2-11b-vision-preview": 500000,
-                "llama-3.2-3b-preview": 500000,
-                "llama-3.2-11b-text-preview": 500000
+            
             }
-            max_allowed_tokens = model_limits.get(TEXT_MODEL, 6000)
+            available_models = fetch_groq_models(GROQ_API_KEY)
+            max_allowed_tokens = 500000 if TEXT_MODEL in available_models else 6000
             
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1: st.metric("Összes felhasznált token", f"{total_tokens:,} db")
