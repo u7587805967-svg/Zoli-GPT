@@ -1513,6 +1513,30 @@ class AsyncAIEngine:
         except Exception as e:
             return f"Nem sikerült letölteni a hivatkozott weblapot: {e}"
 
+def execute_python_sandbox_with_auto_correct(self, code: str, text_model: str, max_retries: int = 3) -> str:
+        """
+        Futtatja a kódot a sandboxban. Hiba esetén a modellt kéri meg a javításra, majd újrapróbálja.
+        """
+        current_code = code
+        for attempt in range(max_retries):
+            result = self.execute_python_sandbox(current_code)
+            
+            if not result.startswith("Hiba a biztonságos futtatás során"):
+                if attempt > 0:
+                    return f"✅ **Kód sikeresen javítva a(z) {attempt}. próbálkozásra!**\n\n{result}"
+                return result
+            
+            if not GROQ_API_KEY:
+                return result
+                
+            # Hiba esetén automatikus korrekció kérése az LLM-től
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                fix_prompt = f"""
+A következő Python kód hibára futott a Sandbox környezetben:
+```python
+{current_code}
+
     def generate_image(self, query: str, text_model: str) -> str:
         clean_query = query.lower()
         stop_words = ["generálj", "generál", "képet", "kép", "egy", "a", "az", "mutass", "rajzolj", "rajzol", "ról", "ről", "-"]
