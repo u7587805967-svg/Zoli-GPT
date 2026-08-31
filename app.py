@@ -62,6 +62,7 @@ selected_model = st.sidebar.selectbox(
 
 @st.cache_data(ttl=3600)
 def cached_tool_query(query: str, tool_type: str):
+    pass
 
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
