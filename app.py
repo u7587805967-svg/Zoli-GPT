@@ -772,23 +772,26 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
             }
         ]
     )
-    english_description = vision_response.choices[0].message.content
+    
+    raw_description = vision_response.choices[0].message.content or ""
 
-    # Ellenőrzés: ha nem sikerült az elemzés, ne menjen tovább a fordításra
-    if not english_description or not english_description.strip():
-        return "Hiba: A modell nem küldött szöveges leírást a képről."
+    # 3. A belső gondolatok (<think>...</think>) eltávolítása a válaszból
+    clean_description = re.sub(r'<think>.*?</think>', '', raw_description, flags=re.DOTALL).strip()
 
-    # 3. Az angol leírás lefordítása magyarra
+    if not clean_description:
+        return "Hiba: A modell nem adott érvényes leírást a képről."
+
+    # 4. A megtisztított angol leírás fordítása magyarra
     translation_response = client.chat.completions.create(
         model=model_name,
         messages=[
             {
                 "role": "system",
-                "content": "Professzionális fordító vagy. Fordítsd le a kapott szöveget természetes, pontos magyar nyelvre. Kizárólag a fordítást add vissza, minden egyéb kommentár nélkül."
+                "content": "Professzionális fordító vagy. Fordítsd le a kapott angol szöveget természetes, pontos magyar nyelvre. Kizárólag a fordítást add vissza, minden egyéb kommentár nélkül."
             },
             {
                 "role": "user",
-                "content": english_description
+                "content": clean_description
             }
         ],
         temperature=0.1
