@@ -751,19 +751,22 @@ def clean_response(text: str) -> str:
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def clean_reasoning(text: str) -> str:
-    """Eltávolítja a <think> blokkokat, még akkor is, ha nincsenek lezárva."""
     if not text:
         return ""
-    # 1. Lezárt <think>...</think> blokkok törlése
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    # 2. Ha félbeszakadt a válasz és nincs lezárva a </think>, a <think> utána lévő részt törli
-    text = re.sub(r'<think>.*$', '', text, flags=re.DOTALL)
-    return text.strip()
+    # 1. Ha van szabályosan lezárt <think>...</think> blokk, azt letöröljük
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    
+    if cleaned:
+        return cleaned
+
+    # 2. FALLBACK: Ha a modell elakadt a gondolkodásban és nincs lezárva a tag,
+    # megtartjuk a generált szöveget a <think> tagek eltávolításával
+    return re.sub(r'</?think>', '', text, flags=re.IGNORECASE).strip()
 
 def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_name: str = "qwen/qwen3.8-27b") -> str:
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
-    # 1. Angol nyelvű képelemzés
+    # 1. Angol képelemzés megnövelt max_tokens kerettel
     vision_response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -779,13 +782,15 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
                     }
                 ]
             }
-        ]
+        ],
+        max_tokens=2048
     )
     
-    clean_vision = clean_reasoning(vision_response.choices[0].message.content or "")
+    raw_vision = vision_response.choices[0].message.content or ""
+    clean_vision = clean_reasoning(raw_vision)
 
     if not clean_vision:
-        return "Hiba: A képelemzés nem adott érvényes leírást."
+        return "Hiba: A modell nem válaszolt. Ellenőrizd a képméretet vagy az API keretet."
 
     # 2. Fordítás magyarra
     translation_prompt = (
@@ -799,11 +804,12 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
         messages=[
             {"role": "user", "content": translation_prompt}
         ],
-        temperature=0.1
+        temperature=0.1,
+        max_tokens=2048
     )
 
-    clean_translation = clean_reasoning(translation_response.choices[0].message.content or "")
-    return clean_translation
+    raw_translation = translation_response.choices[0].message.content or ""
+    return clean_reasoning(raw_translation)
 
 class DatabaseRepository:
     def __init__(self, db_file: str):
