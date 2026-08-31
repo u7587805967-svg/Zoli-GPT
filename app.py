@@ -132,9 +132,11 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
     aktualis_datum = most.strftime("%Y-%m-%d")
     aktualis_ev = most.year
     
-    if not model_name:
-        available = fetch_groq_models(GROQ_API_KEY)
-        model_name = available[0] if available else "groq/compound"
+    osszes_modell = fetch_groq_models(GROQ_API_KEY)
+    szurt_modellek = [m for m in osszes_modell if m in ALLOWED_MODELS] if osszes_modell else ALLOWED_MODELS
+    
+    if not model_name or model_name not in szurt_modellek:
+        model_name = szurt_modellek[0]
 
     try:
         prompt = f"""
@@ -148,8 +150,8 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
         Kérdés: {felhasznalo_kerdese}
         """
 
-        def safe_completion(client, messages, chosen_model):
-            models_to_try = [chosen_model] + [m for m in ALLOWED_MODELS if m != chosen_model]
+        def safe_completion(client, messages, chosen_model, allowed_list):
+            models_to_try = [chosen_model] + [m for m in allowed_list if m != chosen_model]
             for model in models_to_try:
                 try:
                     return client.chat.completions.create(
@@ -158,9 +160,9 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
                     )
                 except Exception:
                     continue
-            raise RuntimeError("Egyik megadott modell sem válaszolt az API-n keresztül.")
+            raise RuntimeError("Egyik engedélyezett modell sem válaszolt az API-n keresztül.")
 
-        response = safe_completion(client, [{"role": "user", "content": prompt}], model_name)
+        response = safe_completion(client, [{"role": "user", "content": prompt}], model_name, szurt_modellek)
         content = response.choices[0].message.content.strip()
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
