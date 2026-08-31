@@ -750,34 +750,30 @@ def clean_response(text: str) -> str:
     """Eltávolítja a <think> gondolati blokkokat a válaszból."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
-def analyze_image_in_hungarian(client, image_bytes: bytes, model_name: str = "qwen/qwen3.8-27b") -> str:
-    """
-    Képelemzést végez angolul a maximális pontosságért, 
-    majd az eredményt lefordítja magyar nyelvre.
-    """
-    english_description = analyze_image_with_qwen(
-        client=client,
-        image_bytes=image_bytes,
-        prompt="Describe this image in detail.",
-        model_name=model_name
-    )
-
-    translation_response = client.chat.completions.create(
+def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_name: str = "qwen/qwen3.8-27b") -> str:
+    english_description = client.chat.completions.create(
         model=model_name,
         messages=[
             {
-                "role": "system",
-                "content": "Professzionális fordító vagy. Fordítsd le a kapott angol szöveget természetes, pontos magyar nyelvre. Kizárólag a lefordított szöveget add vissza, mindenféle felvezetés vagy kiegészítés nélkül."
-            },
-            {
                 "role": "user",
-                "content": english_description
+                "content": [
+                    {"type": "text", "text": "Describe this image in detail."},
+                    # ... az eredeti képkezelő kódod része ...
+                ]
             }
+        ]
+    ).choices[0].message.content
+
+    translation = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": "Professzionális fordító vagy. Fordítsd le a szöveget természetes magyar nyelvre."},
+            {"role": "user", "content": english_description}
         ],
         temperature=0.1
     )
 
-    return translation_response.choices[0].message.content
+    return translation.choices[0].message.content
 
 class DatabaseRepository:
     def __init__(self, db_file: str):
