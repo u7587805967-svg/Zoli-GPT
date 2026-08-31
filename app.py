@@ -750,7 +750,7 @@ def clean_response(text: str) -> str:
     """Eltávolítja a <think> gondolati blokkokat a válaszból."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
-def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a képet! Mindig a magyar nyelvet használod!", model_name: str = "qwen/qwen3.8-27b") -> str:
+def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a képet részletesen! FONTOS: A válaszod teljes egésze kizárólag magyar nyelven íródjon! Szigorúan tilos angolul válaszolnod. ", model_name: str = "qwen/qwen3.8-27b") -> str:
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         
