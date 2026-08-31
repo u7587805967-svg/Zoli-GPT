@@ -1143,30 +1143,26 @@ GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 @st.cache_data(ttl=3600)
 def fetch_groq_models(api_key: str) -> list[str]:
-    """
-    Dinamikusan lekéri a Groq-on elérhető LLM modelleket, kiszűrve a fizetős 
-    és inaktív/nem kompatibilis opciókat. Fallback: qwen/qwen3.8-27b és groq/compound.
-    """
-    fallback_models = ["qwen/qwen3.8-27b", "groq/compound"]
-    
+    """Lekéri az elérhető Groq modelleket, de kizárólag az ALLOWED_MODELS elemeit adja vissza."""
     if not api_key:
-        return fallback_models
-        
+        return ALLOWED_MODELS
+
     try:
-        client = Groq(api_key=api_key)
-        models_data = client.models.list()
+        headers = {"Authorization": f"Bearer {api_key}"}
+        response = requests.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=5)
         
-        valid_models = []
-        for m in models_data.data:
-            is_active = getattr(m, "active", True)
-            is_paid = getattr(m, "is_paid", False)
+        if response.status_code == 200:
+            data = response.json()
+            lekerdezett_ids = [m["id"] for m in data.get("data", [])]
             
-            if is_active and not is_paid:
-                valid_models.append(m.id)
-                
-        return valid_models if valid_models else fallback_models
+            # Megtartjuk az ALLOWED_MODELS elemeit, ha elérhetők az API-ban
+            szurt = [m for m in ALLOWED_MODELS if m in lekerdezett_ids]
+            return szurt if szurt else ALLOWED_MODELS
+            
     except Exception:
-        return fallback_models
+        pass
+
+    return ALLOWED_MODELS
 
 # --- 🧠 ASZINKRON AI MOTOR ---
 class AsyncAIEngine:
