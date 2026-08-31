@@ -132,7 +132,6 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
     aktualis_datum = most.strftime("%Y-%m-%d")
     aktualis_ev = most.year
     
-    # Ha nincs megadva modell, az első elérhető modellt használja
     if not model_name:
         available = fetch_groq_models(GROQ_API_KEY)
         model_name = available[0] if available else "groq/compound"
@@ -148,19 +147,20 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
 
         Kérdés: {felhasznalo_kerdese}
         """
+
         def safe_completion(client, messages, chosen_model):
-    models_to_try = [chosen_model] + [m for m in ALLOWED_MODELS if m != chosen_model]
-    
-    for model in models_to_try:
-        try:
-            return client.chat.completions.create(
-                model=model,
-                messages=messages
-            )
-        except Exception:
-            continue
-    raise RuntimeError("Egyik megadott modell sem válaszolt az API-n keresztül.")
-        )
+            models_to_try = [chosen_model] + [m for m in ALLOWED_MODELS if m != chosen_model]
+            for model in models_to_try:
+                try:
+                    return client.chat.completions.create(
+                        model=model,
+                        messages=messages
+                    )
+                except Exception:
+                    continue
+            raise RuntimeError("Egyik megadott modell sem válaszolt az API-n keresztül.")
+
+        response = safe_completion(client, [{"role": "user", "content": prompt}], model_name)
         content = response.choices[0].message.content.strip()
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
