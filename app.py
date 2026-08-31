@@ -750,6 +750,12 @@ def clean_response(text: str) -> str:
     """Eltávolítja a <think> gondolati blokkokat a válaszból."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
+def remove_think_blocks(text: str) -> str:
+    """Segédfüggvény a <think>...</think> tagek és a tartalmuk törlésére."""
+    if not text:
+        return ""
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
 def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_name: str = "qwen/qwen3.8-27b") -> str:
     # 1. Kép átalakítása Base64 formátumba
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
@@ -773,31 +779,34 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
         ]
     )
     
-    raw_description = vision_response.choices[0].message.content or ""
+    # Képelemzés megtisztítása a gondolatoktól
+    raw_vision = vision_response.choices[0].message.content or ""
+    clean_vision = remove_think_blocks(raw_vision)
 
-    # 3. A belső gondolatok (<think>...</think>) eltávolítása a válaszból
-    clean_description = re.sub(r'<think>.*?</think>', '', raw_description, flags=re.DOTALL).strip()
+    if not clean_vision:
+        return "Hiba: A képelemzés nem adott érvényes leírást."
 
-    if not clean_description:
-        return "Hiba: A modell nem adott érvényes leírást a képről."
-
-    # 4. A megtisztított angol leírás fordítása magyarra
+    # 3. Fordítás magyarra
     translation_response = client.chat.completions.create(
         model=model_name,
         messages=[
             {
                 "role": "system",
-                "content": "Professzionális fordító vagy. Fordítsd le a kapott angol szöveget természetes, pontos magyar nyelvre. Kizárólag a fordítást add vissza, minden egyéb kommentár nélkül."
+                "content": "Professzionális fordító vagy. Fordítsd le a kapott angol szöveget magyar nyelvre. Kizárólag a kész fordítást add vissza, mindenféle gondolatmenet, felvezetés vagy kiegészítés nélkül."
             },
             {
                 "role": "user",
-                "content": clean_description
+                "content": clean_vision
             }
         ],
         temperature=0.1
     )
 
-    return translation_response.choices[0].message.content
+    # A fordító modell gondolatainak megtisztítása IS
+    raw_translation = translation_response.choices[0].message.content or ""
+    final_hungarian_text = remove_think_blocks(raw_translation)
+
+    return final_hungarian_text
 
 class DatabaseRepository:
     def __init__(self, db_file: str):
