@@ -751,7 +751,7 @@ def clean_response(text: str) -> str:
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def remove_think_blocks(text: str) -> str:
-    """Segédfüggvény a <think>...</think> tagek és a tartalmuk törlésére."""
+    """Eltávolítja a <think>...</think> gondolati blokkokat a válaszból."""
     if not text:
         return ""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
@@ -779,34 +779,30 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
         ]
     )
     
-    # Képelemzés megtisztítása a gondolatoktól
     raw_vision = vision_response.choices[0].message.content or ""
     clean_vision = remove_think_blocks(raw_vision)
 
     if not clean_vision:
         return "Hiba: A képelemzés nem adott érvényes leírást."
 
-    # 3. Fordítás magyarra
+    # 3. Fordítás magyarra egyetlen összevont user üzenettel
+    translation_prompt = (
+        "A feladatod: Fordítsd le az alábbi angol szöveget természetes, pontos magyar nyelvre.\n"
+        "SZIGORÚ UTASÍTÁS: Kizárólag a magyar fordítást adhatod vissza! "
+        "Tilos az angol szöveget visszamásolni vagy angolul válaszolni!\n\n"
+        f"Lefordítandó angol szöveg:\n{clean_vision}"
+    )
+
     translation_response = client.chat.completions.create(
         model=model_name,
         messages=[
-            {
-                "role": "system",
-                "content": "Professzionális fordító vagy. Fordítsd le a kapott angol szöveget magyar nyelvre. Kizárólag a kész fordítást add vissza, mindenféle gondolatmenet, felvezetés vagy kiegészítés nélkül."
-            },
-            {
-                "role": "user",
-                "content": clean_vision
-            }
+            {"role": "user", "content": translation_prompt}
         ],
         temperature=0.1
     )
 
-    # A fordító modell gondolatainak megtisztítása IS
     raw_translation = translation_response.choices[0].message.content or ""
-    final_hungarian_text = remove_think_blocks(raw_translation)
-
-    return final_hungarian_text
+    return remove_think_blocks(raw_translation)
 
 class DatabaseRepository:
     def __init__(self, db_file: str):
