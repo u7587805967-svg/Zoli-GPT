@@ -47,6 +47,8 @@ import urllib.parse
 import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
+import aiohttp
+from duckduckgo_search import AsyncDDGS
 
 ALLOWED_MODELS = [
     "openai/gpt-oss-20b",
@@ -140,7 +142,7 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
 
     try:
         prompt = f"""
-        Ma {aktualis_datum} van ({aktualis_ev}. év).
+        Ma {aktualis_datum} van ({aktualis_ev}. év), de ezt ne emlegetsd csak vedd figyelembe a válaszadásnál.
         Hozz létre pontosan 3 eltérő, rövid és időszerű keresőkifejezést webes kereséshez a következő kérdésből.
         Ha a kérdés friss eseményre utal, építsd be a(z) {aktualis_ev} évet!
 
@@ -172,6 +174,55 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
     except Exception:
         pass
     return [felhasznalo_kerdese]
+
+async def kereses_es_szures(kifejezesek: list[str], max_talalat_per_kifejezes=2) -> list[str]:
+    osszes_url = set()
+    async with AsyncDDGS() as ddgs:
+        feladatok = [ddgs.atext(k, max_results=max_talalat_per_kifejezes) for k in kifejezesek]
+        eredmenyek = await asyncio.gather(*feladatok, return_exceptions=True)
+        
+        for eredmeny_lista in eredmenyek:
+            if isinstance(eredmeny_lista, list):
+                for talalat in eredmeny_lista:
+                    if "href" in talalat:
+                        osszes_url.add(talalat["href"])
+    return list(osszes_url)
+
+async def tiszta_szoveg_kinyerese(url: str, session: aiohttp.ClientSession) -> str:
+    fejlec = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        async with session.get(url, headers=fejlec, timeout=6) as response:
+            if response.status != 200:
+                return ""
+            html = await response.text()
+            
+            soup = BeautifulSoup(html, "html.parser")
+            for zaj in soup(["script", "style", "header", "footer", "nav", "aside"]):
+                zaj.extract()
+                
+            szoveg = soup.get_text(separator=" ", strip=True)
+            
+            tiszta_szoveg = " ".join(szoveg.split())
+            if not tiszta_szoveg:
+                return ""
+                
+            return f"FORRÁS ({url}):\n{tiszta_szoveg[:3500]}...\n"
+    except Exception:
+        return ""
+
+async def webes_kontextus_generalasa(kifejezesek: list[str]) -> str:
+    url_lista = await kereses_es_szures(kifejezesek)
+    if not url_lista:
+        return "Nem sikerült releváns webes találatokat lekérni."
+    
+    async with aiohttp.ClientSession() as session:
+        scraping_feladatok = [tiszta_szoveg_kinyerese(url, session) for url in url_lista]
+        szovegek = await asyncio.gather(*scraping_feladatok)
+        
+    vegso_kontextus = "\n---\n".join(filter(bool, szovegek))
+    return vegso_kontextus
 
 
 def bing_ingyenes_kereses(query: str, max_results: int = 5) -> list[dict]:
