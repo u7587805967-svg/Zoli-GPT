@@ -60,6 +60,9 @@ selected_model = st.sidebar.selectbox(
     index=0
 )
 
+@st.cache_data(ttl=3600)
+def cached_tool_query(query: str, tool_type: str):
+
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
@@ -1926,6 +1929,36 @@ def get_clean_history(history, max_chars, text_model=None):
         except Exception: pass
     return truncated, compressed
 
+def compress_history(history: list, max_chars: int = 4000):
+    current_length = sum(len(msg["content"]) for msg in history)
+    
+    if current_length < max_chars or len(history) <= 4:
+        return history, None
+        
+    old_messages = history[:-4] # Régebbi üzenetek leválasztása
+    recent_messages = history[-4:] # Utolsó 4 üzenet megtartása
+    
+    summary_prompt = "Foglald össze az alábbi beszélgetést röviden: " + str(old_messages)
+    compressed_text = ai_engine.summarize(summary_prompt)
+    compressed_text = "Korábbi beszélgetés összefoglalója..." 
+    
+    return recent_messages, compressed_text
+
+def determine_tool_usage(user_input: str, active_user: str) -> dict:
+    tool_system_prompt = """
+    Döntsd el, milyen eszközre van szükség a válaszhoz! Válaszolj KIZÁRÓLAG érvényes JSON formátumban.
+    Elérhető eszközök: "search", "map", "image", "none".
+    Példa: {"tool": "map", "query": "Budapest-Bécs útvonal", "reason": "Útvonalterv szükséges"}
+    """
+    
+    prompt = f"{tool_system_prompt}\n\nFelhasználó üzenete: {user_input}"
+    
+    try:
+        raw_response = ai_engine.call_llm_json(TEXT_MODEL, prompt)
+        return json.loads(raw_response)
+    except Exception:
+        return {"tool": "none", "query": "", "reason": ""}
+
 # --- OLDALSÁV ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
@@ -2325,7 +2358,8 @@ with tab_chat:
         raw_user_input = user_input 
         
         st.chat_message("user").write(user_input)
-        db_repo.log_message(active_chat_user, "user", user_input, thread_id=st.session_state.get("current_thread", "default"))
+        current_tid = st.session_state.get("current_thread", "default")
+        db_repo.log_message(active_chat_user, "user", user_input, thread_id=current_tid)
 
         with st.chat_message("assistant"):
             status_placeholder = st.empty()
@@ -2339,7 +2373,7 @@ with tab_chat:
                         url = ai_engine.generate_image(user_input, TEXT_MODEL)
                         if url:
                             st.image(url, caption=f" Kép: {user_input}", use_container_width=True)
-                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=st.session_state.get("current_thread", "default"))
+                            db_repo.log_message(active_chat_user, "assistant", url, "image", caption=user_input, thread_id=current_tid)
                 
                 else:
                     start_time = time.perf_counter()
@@ -2347,7 +2381,7 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
-                    # 1. AI ROUTER & KERESÉSEK
+                    # 1. AI ROUTER & STRUKTURÁLT JSON ESZKÖZVÁLASZTÁS
                     with st.status(" Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -2444,11 +2478,17 @@ with tab_chat:
                     if not can_answer:
                         context_addition += "\n\nRENDSZER UTASÍTÁS: A források alapján NEM lehet biztosan megválaszolni a kérdést. Közöld ezt a felhasználóval, és NE találj ki tényeket!"
 
-                    # 2. ÜZENETEK ÉS IDŐZÓNA ELŐKÉSZÍTÉSE
+                    # 2. ÜZENETEK ÉS MUNKAMENET-MEMÓRIA KEZELÉSE
                     messages = [{"role": "system", "content": system_prompt + context_addition}]
 
-                    # Előzmények hozzáadása (st.session_state.messages használatával)
-                    for msg in st.session_state.get("messages", [])[-6:]:
+                    # Előzmények intelligens tömörítése és korlátozása (Context Management)
+                    raw_history = st.session_state.get("messages", [])
+                    truncated_hist, compressed_text = compress_history(raw_history, cfg.MAX_HISTORY_CHARS)
+                    
+                    if compressed_text:
+                        messages.append({"role": "system", "content": f"Korábbi beszélgetés összefoglalója: {compressed_text}"})
+
+                    for msg in truncated_hist:
                         if isinstance(msg, dict) and msg.get("role") in ["user", "assistant"]:
                             messages.append({"role": msg["role"], "content": msg["content"]})
 
@@ -2464,6 +2504,7 @@ with tab_chat:
                     else:
                         messages.append({"role": "user", "content": user_input})
 
+                    # Időzóna beállítása
                     try:
                         tz_bp = pytz.timezone("Europe/Budapest")
                         now_bp = datetime.datetime.now(tz_bp)
@@ -2495,7 +2536,7 @@ with tab_chat:
                     except Exception:
                         pass
 
-                    
+                    # 3. VÁLASZ GENERÁLÁSA ÉS PARSZOLÁSA
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
                         for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
@@ -2505,7 +2546,6 @@ with tab_chat:
                     if web_sources_text:
                         full_response += web_sources_text
 
-                    
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
                     
@@ -2517,17 +2557,15 @@ with tab_chat:
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
 
-                    
                     response_placeholder.markdown(display_response)
 
-                    
+                    # Speciális akciók végrehajtása
                     if urls_to_open:
                         for url in set(urls_to_open):
                             js_code = f"<script>window.open('{url}', '_blank');</script>"
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
 
-                    
                     if route_match:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
@@ -2565,11 +2603,11 @@ with tab_chat:
                             except Exception as e:
                                 st.error(f"Hiba a zene keresése közben: {e}")
 
-                    # Latency & Logolás
+                    # 4. LATENCY ÉS MENTÉS
                     end_time = time.perf_counter()
                     db_repo.log_latency(end_time - start_time)
                     try:
-                        db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=st.session_state.get("current_thread", "default"))
+                        db_repo.log_message(active_chat_user, "assistant", full_response, "text", thread_id=current_tid)
                     except Exception as e:
                         st.error(f"Hiba a naplózás során: {e}")
             
