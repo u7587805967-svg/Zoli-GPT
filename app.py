@@ -2064,8 +2064,8 @@ with st.sidebar:
                 except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
 
             elif ext in ["png", "jpg", "jpeg"]:
-    st.session_state.active_vision_image = uploaded_file.getvalue()
-    st.sidebar.image(st.session_state.active_vision_image, caption=" Kép készen áll az elemzésre.", use_container_width=True)
+                st.session_state.active_vision_image = uploaded_file.getvalue()
+                st.sidebar.image(st.session_state.active_vision_image, caption=" Kép készen áll az elemzésre.", use_container_width=True)
     
     if st.sidebar.button(" Kép elemzése most", use_container_width=True):
         if GROQ_API_KEY:
