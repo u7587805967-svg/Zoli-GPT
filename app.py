@@ -746,6 +746,23 @@ def hash_password(password: str, salt: str = None) -> tuple:
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
     return key.hex(), salt
 
+def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a képet és írd le részletesen, mi látható rajta!", model_name: str = "qwen/qwen3.8-27b") -> str:
+    try:
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }
+        ]
+        response = client.chat.completions.create(model=model_name, messages=messages, max_tokens=1000)
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Hiba a kép elemzése során: {e}"
+
 class DatabaseRepository:
     def __init__(self, db_file: str):
         self.db_file = db_file
@@ -767,7 +784,6 @@ class DatabaseRepository:
             cursor.execute('''CREATE TABLE IF NOT EXISTS token_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, tokens INTEGER, cost REAL, timestamp TEXT)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS system_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT, timestamp TEXT)''')
             
-            # Dinamikus sémafrissítések a visszafelé kompatibilitásért
             try: cursor.execute("ALTER TABLE chat_history ADD COLUMN thread_id TEXT DEFAULT 'default'")
             except sqlite3.OperationalError: pass
             try: cursor.execute("ALTER TABLE token_logs ADD COLUMN username TEXT")
@@ -779,7 +795,6 @@ class DatabaseRepository:
             try: cursor.execute("ALTER TABLE token_logs ADD COLUMN timestamp TEXT")
             except sqlite3.OperationalError: pass
             
-            # ÚJ: Biztonsági só (salt) oszlop hozzáadása a meglévő adatbázishoz
             try: cursor.execute("ALTER TABLE users ADD COLUMN salt TEXT")
             except sqlite3.OperationalError: pass
             
@@ -2047,11 +2062,25 @@ with st.sidebar:
                     content = f"Fájl: {uploaded_file.name}\nOszlopok: {list(df.columns)}\nStatisztika:\n{df.describe().to_string()}\nAdat minta:\n{df.head(15).to_markdown() if hasattr(df, 'to_markdown') else df.head(15).to_string()}"
                     st.sidebar.dataframe(df.head(3))
                 except Exception as e: st.sidebar.error(f"Táblázat hiba: {e}")
+
             elif ext in ["png", "jpg", "jpeg"]:
-                st.session_state.active_vision_image = uploaded_file.getvalue()
-                st.sidebar.image(st.session_state.active_vision_image, caption="📸 Kép készen áll az elemzésre.", use_container_width=True)
-                st.session_state[f"idx_{uploaded_file.name}"] = True
-                st.sidebar.success("Kép sikeresen betöltve!")
+    st.session_state.active_vision_image = uploaded_file.getvalue()
+    st.sidebar.image(st.session_state.active_vision_image, caption=" Kép készen áll az elemzésre.", use_container_width=True)
+    
+    if st.sidebar.button(" Kép elemzése most", use_container_width=True):
+        if GROQ_API_KEY:
+            client = Groq(api_key=GROQ_API_KEY)
+            with st.spinner("Qwen elemzi a képet..."):
+                eredmeny = analyze_image_with_qwen(
+                    client=client, 
+                    image_bytes=st.session_state.active_vision_image,
+                    prompt="Írd le részletesen a képen látható tárgyakat, szövegeket és kontextust!",
+                    model_name="qwen/qwen3.6-27b"
+                )
+                db_repo.log_message(active_chat_user, "assistant", eredmeny, "text", thread_id=st.session_state.get("current_thread", "default"))
+                st.rerun()
+        else:
+            st.sidebar.error("Hiányzik a Groq API kulcs!")
 
             if content:
                 ai_engine.ingest_document(content, uploaded_file.name, active_chat_user, TEXT_MODEL, size_kb)
