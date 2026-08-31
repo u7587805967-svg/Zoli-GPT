@@ -750,17 +750,20 @@ def clean_response(text: str) -> str:
     """Eltávolítja a <think> gondolati blokkokat a válaszból."""
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
-def remove_think_blocks(text: str) -> str:
-    """Eltávolítja a <think>...</think> gondolati blokkokat a válaszból."""
+def clean_reasoning(text: str) -> str:
+    """Eltávolítja a <think> blokkokat, még akkor is, ha nincsenek lezárva."""
     if not text:
         return ""
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    # 1. Lezárt <think>...</think> blokkok törlése
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # 2. Ha félbeszakadt a válasz és nincs lezárva a </think>, a <think> utána lévő részt törli
+    text = re.sub(r'<think>.*$', '', text, flags=re.DOTALL)
+    return text.strip()
 
 def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_name: str = "qwen/qwen3.8-27b") -> str:
-    # 1. Kép átalakítása Base64 formátumba
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
-    # 2. Angol nyelvű képelemzés
+    # 1. Angol nyelvű képelemzés
     vision_response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -779,18 +782,16 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
         ]
     )
     
-    raw_vision = vision_response.choices[0].message.content or ""
-    clean_vision = remove_think_blocks(raw_vision)
+    clean_vision = clean_reasoning(vision_response.choices[0].message.content or "")
 
     if not clean_vision:
         return "Hiba: A képelemzés nem adott érvényes leírást."
 
-    # 3. Fordítás magyarra egyetlen összevont user üzenettel
+    # 2. Fordítás magyarra
     translation_prompt = (
-        "A feladatod: Fordítsd le az alábbi angol szöveget természetes, pontos magyar nyelvre.\n"
-        "SZIGORÚ UTASÍTÁS: Kizárólag a magyar fordítást adhatod vissza! "
-        "Tilos az angol szöveget visszamásolni vagy angolul válaszolni!\n\n"
-        f"Lefordítandó angol szöveg:\n{clean_vision}"
+        "Fordítsd le a következő szöveget magyar nyelvre. "
+        "Kizárólag a lefordított magyar szöveget add vissza:\n\n"
+        f"{clean_vision}"
     )
 
     translation_response = client.chat.completions.create(
@@ -801,8 +802,8 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
         temperature=0.1
     )
 
-    raw_translation = translation_response.choices[0].message.content or ""
-    return remove_think_blocks(raw_translation)
+    clean_translation = clean_reasoning(translation_response.choices[0].message.content or "")
+    return clean_translation
 
 class DatabaseRepository:
     def __init__(self, db_file: str):
