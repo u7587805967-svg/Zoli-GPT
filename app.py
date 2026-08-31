@@ -746,9 +746,14 @@ def hash_password(password: str, salt: str = None) -> tuple:
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
     return key.hex(), salt
 
-def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a képet és írd le részletesen, mi látható rajta!", model_name: str = "qwen/qwen3.8-27b") -> str:
+def clean_response(text: str) -> str:
+    """Eltávolítja a <think> gondolati blokkokat a válaszból."""
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a képet! Mindig a magyar nyelvet használod!", model_name: str = qwen/qwen3.8-27b") -> str:
     try:
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        
         messages = [
             {
                 "role": "user",
@@ -758,8 +763,17 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "Elemzed a
                 ]
             }
         ]
-        response = client.chat.completions.create(model=model_name, messages=messages, max_tokens=1000)
-        return response.choices[0].message.content
+        
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.6,
+            frequency_penalty=0.5
+        )
+        
+        raw_text = response.choices[0].message.content
+        return clean_response(raw_text)
     except Exception as e:
         return f"Hiba a kép elemzése során: {e}"
 
@@ -2070,7 +2084,7 @@ with st.sidebar:
     if st.sidebar.button(" Kép elemzése most", use_container_width=True):
         if GROQ_API_KEY:
             client = Groq(api_key=GROQ_API_KEY)
-            with st.spinner("Qwen elemzi a képet..."):
+            with st.spinner("Zoli elemzi a képet..."):
                 eredmeny = analyze_image_with_qwen(
                     client=client, 
                     image_bytes=st.session_state.active_vision_image,
