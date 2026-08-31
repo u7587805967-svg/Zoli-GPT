@@ -39,16 +39,13 @@ import datetime
 import concurrent.futures
 import httpx
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 import datetime
 import json
 import math
 import urllib.parse
 import concurrent.futures
-from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 import aiohttp
-from duckduckgo_search import AsyncDDGS
 
 ALLOWED_MODELS = [
     "openai/gpt-oss-20b",
@@ -177,7 +174,7 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
 
 async def kereses_es_szures(kifejezesek: list[str], max_talalat_per_kifejezes=2) -> list[str]:
     osszes_url = set()
-    async with AsyncDDGS() as ddgs:
+    async with DDGS() as ddgs:
         feladatok = [ddgs.atext(k, max_results=max_talalat_per_kifejezes) for k in kifejezesek]
         eredmenyek = await asyncio.gather(*feladatok, return_exceptions=True)
         
