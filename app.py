@@ -48,6 +48,19 @@ import concurrent.futures
 from duckduckgo_search import DDGS
 from sentence_transformers import SentenceTransformer
 
+ALLOWED_MODELS = [
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "groq/compound",
+    "openai/gpt-oss-120b"
+]
+
+selected_model = st.sidebar.selectbox(
+    "Válassz modellt:",
+    options=ALLOWED_MODELS,
+    index=0
+)
+
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
@@ -135,11 +148,18 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
 
         Kérdés: {felhasznalo_kerdese}
         """
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=150
+        def safe_completion(client, messages, chosen_model):
+    models_to_try = [chosen_model] + [m for m in ALLOWED_MODELS if m != chosen_model]
+    
+    for model in models_to_try:
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+        except Exception:
+            continue
+    raise RuntimeError("Egyik megadott modell sem válaszolt az API-n keresztül.")
         )
         content = response.choices[0].message.content.strip()
         match = re.search(r'\[.*\]', content, re.DOTALL)
