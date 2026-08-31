@@ -2485,7 +2485,7 @@ with tab_chat:
                             except Exception:
                                 pass
                         
-                        system_context = f"\n[SZIGORÚAN BETARTANDÓ: SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!! - Naptár és Világóra]:\n{current_date_info}{world_clocks}\n"
+                        system_context = f"\n[SZIGORÚAN BETARTANDÓ: SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!]:\n{current_date_info}{world_clocks}\n"
                         
                         if messages and messages[-1]["role"] == "user":
                             if isinstance(messages[-1]["content"], list):
@@ -2495,7 +2495,7 @@ with tab_chat:
                     except Exception:
                         pass
 
-                    # 3. VÁLASZ GENERÁLÁSA STREAMINGGEL
+                    
                     full_response = ""
                     with st.spinner("Gondolkodom..."):
                         for chunk in ai_engine.safe_ollama_chat_stream(TEXT_MODEL, messages, username=active_chat_user):
@@ -2505,7 +2505,7 @@ with tab_chat:
                     if web_sources_text:
                         full_response += web_sources_text
 
-                    # 4. PARANCSOK ÉS WIDGETEK FELDOLGOZÁSA (EGYSZERI FUTTATÁS)
+                    
                     urls_to_open = re.findall(r'\[OPEN_URL:\s*(https?://[^\]]+)\]', full_response)
                     display_response = re.sub(r'\[OPEN_URL:\s*https?://[^\]]+\]', '', full_response)
                     
@@ -2517,23 +2517,22 @@ with tab_chat:
                     if music_match:
                         display_response = re.sub(r'\[PLAY_MUSIC:\s*[^\]]+\]', '', display_response)
 
-                    # Végleges válasz megjelenítése
+                    
                     response_placeholder.markdown(display_response)
 
-                    # Megnyitandó linkek
+                    
                     if urls_to_open:
                         for url in set(urls_to_open):
                             js_code = f"<script>window.open('{url}', '_blank');</script>"
                             st.components.v1.html(js_code, height=0)
                             st.info(f"🔗 Új fül nyitása indítva: **{url}**\n\n*(Ha a böngésződ pop-up blokkolója megfogta, [kattints ide a kézi megnyitáshoz]({url}))*")        
 
-                    # Útvonal widget
+                    
                     if route_match:
                         start_point = route_match.group(1).strip()
                         end_point = route_match.group(2).strip()
                         show_route_widget(start_point, end_point)
 
-                    # Zene lejátszása
                     if music_match:
                         search_query = music_match.group(1).strip()
                         with st.spinner(f" Zene keresése: {search_query}..."):
