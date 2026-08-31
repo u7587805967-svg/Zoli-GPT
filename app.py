@@ -751,8 +751,10 @@ def clean_response(text: str) -> str:
     return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
 def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_name: str = "qwen/qwen3.8-27b") -> str:
+    # 1. Kép átalakítása Base64 formátumba
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
+    # 2. Angol nyelvű képelemzés
     vision_response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -772,6 +774,11 @@ def analyze_image_with_qwen(client, image_bytes: bytes, prompt: str = "", model_
     )
     english_description = vision_response.choices[0].message.content
 
+    # Ellenőrzés: ha nem sikerült az elemzés, ne menjen tovább a fordításra
+    if not english_description or not english_description.strip():
+        return "Hiba: A modell nem küldött szöveges leírást a képről."
+
+    # 3. Az angol leírás lefordítása magyarra
     translation_response = client.chat.completions.create(
         model=model_name,
         messages=[
