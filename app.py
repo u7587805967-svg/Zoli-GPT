@@ -46,6 +46,7 @@ import urllib.parse
 import concurrent.futures
 from sentence_transformers import SentenceTransformer
 import aiohttp
+from ai_engine import UltraAIEngine, UltraConfig
 
 ALLOWED_MODELS = [
     "openai/gpt-oss-20b",
