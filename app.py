@@ -47,6 +47,10 @@ import concurrent.futures
 from sentence_transformers import SentenceTransformer
 import aiohttp
 from ai_engine import UltraAIEngine, UltraConfig
+from database import init_db, save_message, get_chat_history
+from search import fetch_all_urls
+
+asyncio.run(save_message("chat.db", "user", user_input))
 
 ALLOWED_MODELS = [
     "openai/gpt-oss-20b",
