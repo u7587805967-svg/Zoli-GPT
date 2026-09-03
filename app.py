@@ -582,7 +582,14 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     return "\n\n".join(kontextus_blokkok)
 
 
-def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_kontextus: str = "", doc_kontextus: str = "", model_name: str = None):
+def generald_a_hajszalpontos_valaszt(
+    client, 
+    felhasznalo_kerdese: str, 
+    chat_history: list = None,  # 1. PARAMÉTER PÓTOLVA
+    web_kontextus: str = "", 
+    doc_kontextus: str = "", 
+    model_name: str = None
+):
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
 
@@ -590,9 +597,17 @@ def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_konte
         available = fetch_groq_models(GROQ_API_KEY)
         model_name = available[0] if available else "qwen/qwen3.8-27b"
 
+    extra_kontextus = ""
+    if web_kontextus:
+        extra_kontextus += f"\n\nWebes kontextus:\n{web_kontextus}"
+    if doc_kontextus:
+        extra_kontextus += f"\n\nDokumentum kontextus:\n{doc_kontextus}"
+
     system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
 SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
+Aktuális dátum: {aktualis_datum}
+{extra_kontextus}
 
 utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
@@ -607,17 +622,16 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 3. **Stílus:**
    - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
 """
-    messages = [
-    {"role": "system", "content": system_prompt},
-    {"role": "user", "content": "jegyezt meg ezt a szót: pad"},
-    {"role": "assistant", "content": "A szó el van rögzítve..."},
-    {"role": "user", "content": "mi volt az a szó amit mondtam hogy jegyezz meg???"} # Aktuális kérdés
-]
-    
+
+    # 2. TISZTA LISTA INDÍTÁSA (beégetett tesztadatok nélkül)
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # 3. KORÁBBI ÜZENETEK BEFŰZÉSE
     if chat_history:
         for msg in chat_history[-10:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
-            
+
+    # 4. AKTUÁLIS KÉRDÉS HOZZÁADÁSA
     messages.append({"role": "user", "content": felhasznalo_kerdese})
 
     response = client.chat.completions.create(
