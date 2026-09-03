@@ -607,7 +607,12 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 3. **Stílus:**
    - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
 """
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = [
+    {"role": "system", "content": system_prompt},
+    {"role": "user", "content": "jegyezt meg ezt a szót: pad"},
+    {"role": "assistant", "content": "A szó el van rögzítve..."},
+    {"role": "user", "content": "mi volt az a szó amit mondtam hogy jegyezz meg???"} # Aktuális kérdés
+]
     
     if chat_history:
         for msg in chat_history[-10:]:
