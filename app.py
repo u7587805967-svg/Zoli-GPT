@@ -42,6 +42,69 @@ from ai_engine import UltraAIEngine, UltraConfig
 from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
 
+DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
+
+def init_memory_db():
+    """Létrehozza a tények tárolására szolgáló táblát."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            fact TEXT,
+            category TEXT,
+            timestamp TEXT
+        )
+        ''')
+        conn.commit()
+
+def save_user_fact(username: str, fact: str):
+    """Menti a kinyert tényt, ha az még nem létezik."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM user_memories WHERE username=? AND fact=?", (username, fact))
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO user_memories (username, fact, category, timestamp) VALUES (?, ?, ?, ?)",
+                (username, fact, "general", datetime.datetime.now().isoformat())
+            )
+            conn.commit()
+
+def fetch_user_facts(username: str) -> list[str]:
+    """Lekéri a felhasználóhoz tartozó legfrissebb 20 tényt."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT fact FROM user_memories WHERE username=? ORDER BY id DESC LIMIT 20", (username,))
+        return [row[0] for row in cursor.fetchall()]
+
+def extract_and_save_facts(username: str, user_message: str, groq_api_key: str, model: str = "llama-3.3-70b-versatile"):
+    """Elemezi az üzenetet és elmenti a személyes tényeket."""
+    if len(user_message.strip()) < 10 or not groq_api_key:
+        return
+
+    prompt = f"""
+    Elemezd a következő felhasználói üzenetet!
+    Ha a felhasználó megoszt magáról egy maradandó információt (pl. név, lakhely, foglalkozás, hobbi, preferált nyelv, technológia), nyerd ki azt 1 rövid mondatban!
+    Ha nincs benne személyes tény, válaszolj pontosan ennyit: "NINCS".
+
+    Üzenet: "{user_message}"
+    Kinyert tény (magyarul):
+    """
+    try:
+        client = Groq(api_key=groq_api_key)
+        res = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=60
+        )
+        extracted = res.choices[0].message.content.strip()
+        if extracted and "NINCS" not in extracted.upper():
+            save_user_fact(username, extracted)
+    except Exception:
+        pass
+
 ALLOWED_MODELS = [
     "qwen/qwen3.8-27b",
     "openai/gpt-oss-120b",
@@ -544,18 +607,23 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 3. **Stílus:**
    - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
 """
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    if chat_history:
+        for msg in chat_history[-10:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+            
+    messages.append({"role": "user", "content": felhasznalo_kerdese})
 
     response = client.chat.completions.create(
         model=model_name,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": felhasznalo_kerdese}
-        ],
+        messages=messages,
         temperature=0.1,
         max_tokens=3000
     )
 
     return response.choices[0].message.content
+    
 
 
 
