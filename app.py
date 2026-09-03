@@ -1,53 +1,45 @@
-import streamlit as st
-import os
-import datetime
-import io
+# Beépített könyvtárak
 import asyncio
-import time
 import base64
-import pytz
-import sqlite3
-import urllib.parse
+import concurrent.futures
+import datetime
 import hashlib
-import secrets 
-import pandas as pd
-from dataclasses import dataclass
+import io
+import json
+import math
+import os
+import re
+import secrets
+import sqlite3
+import time
+import urllib.parse
+
+# Külső csomagok
+import aiohttp
+from bs4 import BeautifulSoup
 from contextlib import contextmanager
-from streamlit_mic_recorder import mic_recorder
+from dataclasses import dataclass
+from docx import Document
 from duckduckgo_search import DDGS
+from googlesearch import search as google_search
+from groq import Groq
+import httpx
+import numpy as np
+import pandas as pd
 from PIL import Image
 from pypdf import PdfReader
-import docx
-from docx import Document
-from groq import Groq
-import json
-import streamlit.components.v1 as components
+import pytz
 import requests
-import concurrent.futures
-from googlesearch import search as google_search
-import requests
-from bs4 import BeautifulSoup
 from RestrictedPython import compile_restricted, safe_builtins
 from RestrictedPython.PrintCollector import PrintCollector
-import re
-import json
-import concurrent.futures
-import numpy as np
-import json
-import math
-import datetime
-import concurrent.futures
-import httpx
-from bs4 import BeautifulSoup
-import datetime
-import json
-import math
-import urllib.parse
-import concurrent.futures
 from sentence_transformers import SentenceTransformer
-import aiohttp
+import streamlit as st
+import streamlit.components.v1 as components
+from streamlit_mic_recorder import mic_recorder
+
+# Saját modulok
 from ai_engine import UltraAIEngine, UltraConfig
-from database import init_db, save_message, get_chat_history
+from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
 
 ALLOWED_MODELS = [
@@ -537,7 +529,7 @@ def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_konte
 
     system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
-A mai dátum: {aktualis_datum}.
+A mai dátum: {aktualis_datum}. SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
 
 utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
@@ -1674,7 +1666,6 @@ class AsyncAIEngine:
         
         en_query = clean_query
         
-        # Fordítás angolra (Pollinations miatt)
         if GROQ_API_KEY:
             try:
                 client = Groq(api_key=GROQ_API_KEY)

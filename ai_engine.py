@@ -12,7 +12,6 @@ from sentence_transformers import SentenceTransformer
 from duckduckgo_search import DDGS
 from groq import Groq
 
-# --- OPTIMALIZÁLT RENDSZERKONFIGURÁCIÓ ---
 @dataclass(frozen=True)
 class UltraConfig:
     CHUNK_SIZE: int = 600
@@ -28,7 +27,6 @@ def get_ultra_embedder():
     # Gyors és többnyelvű vektoros beágyazó modell
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-# --- 1. PÁRHUZAMOS ÉS ÖNCORRIGÁLÓ KERESŐMOTOR ---
 class UltraSearchEngine:
     def __init__(self, groq_api_key: str):
         self.client = Groq(api_key=groq_api_key) if groq_api_key else None
@@ -69,7 +67,6 @@ class UltraSearchEngine:
         valid_contexts = [txt for txt in extracted_texts if txt]
         return "\n\n---\n\n".join(valid_contexts) if valid_contexts else "A weboldalak tartalma nem volt hozzáférhető."
 
-# --- 2. HIBRID VECTOR & BM25 RAG ENGINE ---
 class UltraRAGEngine:
     def __init__(self, db_repo):
         self.db = db_repo
@@ -119,7 +116,6 @@ class UltraRAGEngine:
         scored_chunks.sort(key=lambda x: x["score"], reverse=True)
         return scored_chunks[:4]
 
-# --- 3. VÉGTELEN PONTOSSÁGÚ NATIVE ORCHESTRATOR ---
 class UltraAIEngine:
     def __init__(self, db_repo, api_key: str):
         self.db = db_repo
@@ -128,17 +124,13 @@ class UltraAIEngine:
         self.rag_engine = UltraRAGEngine(db_repo)
 
     async def process_user_request(self, user_query: str, username: str, model_name: str):
-        # 1. Párhuzamos adatgyűjtés: RAG és Web Search indítása egyidejűleg
         rag_task = asyncio.to_thread(self.rag_engine.query_context, user_query, username)
         
-        # Dinamikus keresőkifejezések generálása a gyorsasághoz
         search_queries = [user_query]
         search_task = self.search_engine.execute_parallel_search(search_queries)
 
-        # Mindkét forrás bevárása párhuzamosan
         rag_results, web_context = await asyncio.gather(rag_task, search_task)
 
-        # 2. Kontextusok összegzése
         local_context = "\n".join([f"[{d['doc_name']}]: {d['text']}" for d in rag_results])
         
         full_system_context = f"""
@@ -156,7 +148,6 @@ class UltraAIEngine:
         3. Ne használj töltelékszövegeket vagy felesleges üdvözléseket.
         """
 
-        # 3. Streamelt válaszgenerálás a minimális első-token válaszidőért (TTFT)
         if not self.api_key:
             yield "Hiba: Hiányzó API kulcs."
             return
