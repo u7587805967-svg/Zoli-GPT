@@ -27,3 +27,4 @@ torchvision
 langchain-huggingface
 rank_bm25
 aiohttp
+aiosqlite
