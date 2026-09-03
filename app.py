@@ -529,7 +529,7 @@ def generald_a_hajszalpontos_valaszt(client, felhasznalo_kerdese: str, web_konte
 
     system_prompt = f"""
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
-A mai dátum: {aktualis_datum}. SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
+SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
 
 utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
 1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
