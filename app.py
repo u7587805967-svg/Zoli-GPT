@@ -2236,11 +2236,11 @@ with st.sidebar:
                 st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
-    st.subheader("🎙️ Hang rögzítése")
-    audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+       st.subheader("🎙️ Hang rögzítése")
+       audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
     
     # --- ITT VAN AZ ÚJ HUGGING FACE WHISPER RÉSZ ---
-    if audio and "bytes" in audio:
+        if audio and "bytes" in audio:
         try:
             with st.spinner("Hang feldolgozása..."):
                 result = client.automatic_speech_recognition(
