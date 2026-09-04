@@ -687,16 +687,15 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
             #map { height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
             
             .gps-status {
-                st.markdown(
-                    """
-                    <style>
-                    .my-box {
-                        border-left: 4px solid #007bff;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
+                custom_css = """
+                <style>
+                .my-box {
+                    border-left: 4px solid #007bff;
+                }
+                </style>
+                """
+
+st.markdown(custom_css, unsafe_allow_html=True)
                 
                 background-color: #f0f2f6;
                 border-left: 4px solid #007bff;
