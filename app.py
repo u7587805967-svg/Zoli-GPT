@@ -1463,6 +1463,9 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
 
+def a():
+    pass
+
 def check_tokens():
     pass
 
