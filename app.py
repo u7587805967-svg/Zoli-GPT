@@ -2448,6 +2448,15 @@ if is_admin:
                         
                 diag_status.update(label="✅ Diagnosztika befejeződött!", state="complete", expanded=False)
 
+from memory import clear_memory
+
+
+if st.button("🗑️ Teljes chat-memória törlése", type="primary"):
+        clear_memory()
+        st.success("A beszélgetési előzmények sikeresen törölve!")
+        st.rerun()
+
+
 # ---  CHAT INTERFACE ---
 with tab_chat:
     alert = db_repo.fetch_latest_alert()
