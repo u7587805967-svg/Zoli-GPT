@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from docx import Document
 from duckduckgo_search import DDGS
 from googlesearch import search as google_search
-from huggingface_hub import InferenceClient
+from groq import Groq
 import httpx
 import numpy as np
 import pandas as pd
@@ -43,15 +43,7 @@ from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
 from memory import init_memory, add_message, get_messages, render_history
 
-hf_token = st.secrets["HF_TOKEN"]
-client = InferenceClient(api_key=HF_TOKEN)
-res = client.chat.completions.create(
-    model="meta-llama/Llama-3.3-70B-Instruct",
-    messages=[{"role": "user", "content": prompt}],
-    max_tokens=500
-)
-
-DB_PATH = "database.db"
+DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
 def init_memory_db():
     """Létrehozza a tények tárolására szolgáló táblát."""
@@ -115,9 +107,10 @@ def extract_and_save_facts(username: str, user_message: str, groq_api_key: str, 
         pass
 
 ALLOWED_MODELS = [
-    "meta-llama/Llama-3.3-70B-Instruct",
-    "Qwen/Qwen2.5-Coder-32B-Instruct",
-    "mistralai/Mistral-7B-Instruct-v0.3"
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "groq/compound"
 ]
 
 selected_model = st.sidebar.selectbox(
@@ -1463,28 +1456,14 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
 
-def a():
-    pass
-
-def check_tokens():
-    pass
-
-if not HF_TOKEN:
-    st.error("Hiányzik a HF_TOKEN!")
-
-    def safe_hf_chat_stream(self, model: str, messages: list, username: str = None):
-        if not HF_TOKEN:
-            st.error("Hiányzó Hugging Face API kulcs!")
+    def safe_ollama_chat_stream(self, model: str, messages: list, username: str = None):
+        if not GROQ_API_KEY:
+            st.error(" Hiányzó Groq API kulcs!")
             yield "Hiba: Nincs konfigurálva API kulcs."
             return
         try:
-            client = InferenceClient(api_key=HF_TOKEN)
-            stream = client.chat.completions.create(
-                model=model, 
-                messages=messages, 
-                stream=True,
-                max_tokens=1000
-            )
+            client = Groq(api_key=GROQ_API_KEY)
+            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
             
             estimated_tokens = 0
             for chunk in stream:
@@ -1495,7 +1474,6 @@ if not HF_TOKEN:
                     
             if username and estimated_tokens > 0:
                 self.db.log_tokens(username, estimated_tokens, model)
-                
         except Exception as e:
             yield f"Szerver hiba: {e}"
 
@@ -2239,37 +2217,19 @@ with st.sidebar:
         st.subheader("🎙️ Hang rögzítése")
         audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
         
-        if audio and "bytes" in audio:
-            try:
-                with st.spinner("Hang feldolgozása..."):
-                    result = client.automatic_speech_recognition(
-                        audio=audio["bytes"],
-                        model="openai/whisper-large-v3-turbo"
-                    )
-                    transcribed_text = result.text if hasattr(result, 'text') else result.get('text', '')
-                    
-                    if transcribed_text:
-                        st.success(f"Felismerve: {transcribed_text}")
-                        # Beillesztés a chat üzenetek közé
-                        st.session_state.messages.append({"role": "user", "content": transcribed_text})
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Hiba a hang feldolgozásakor: {e}")
+        if st.session_state.get("voice_playing", False):
+            if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
+                st.session_state.mute_voice = True
+                st.session_state.voice_playing = False
+                st.rerun()
 
-    if st.session_state.get("voice_playing", False):
-        if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
-            st.session_state.mute_voice = True
-            st.session_state.voice_playing = False
-            st.rerun()
-
-# Ez a rész VÁLTOZATLANUL megmarad:
-st.markdown("---")
-if st.button(" Kijelentkezés", use_container_width=True):
-    st.session_state.logged_in_user = None
-    if "admin_selected_user" in st.session_state:
-        del st.session_state.admin_selected_user
-    st.query_params.clear()
-    st.rerun()
+    st.markdown("---")
+    if st.button(" Kijelentkezés", use_container_width=True):
+        st.session_state.logged_in_user = None
+        if "admin_selected_user" in st.session_state:
+            del st.session_state.admin_selected_user
+        st.query_params.clear()
+        st.rerun()
 
 chat_history = db_repo.fetch_history(active_chat_user, thread_id=st.session_state.get("current_thread", "default"))
 

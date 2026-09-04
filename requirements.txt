@@ -9,7 +9,7 @@ Pillow
 pypdf
 python-docx
 
-huggingface_hub>=0.20.0
+groq
 
 requests
 googlesearch-python
