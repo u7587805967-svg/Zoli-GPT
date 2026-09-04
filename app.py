@@ -687,19 +687,10 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
             #map { height: 480px; width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
             
             .gps-status {
-                custom_css = """
-                <style>
-                .my-box {
-                    border-left: 4px solid #007bff;
-                }
-                </style>
-                """
-
-st.markdown(custom_css, unsafe_allow_html=True)
-                
                 background-color: #f0f2f6;
                 border-left: 4px solid #007bff;
                 border-radius: 6px;
+                padding: 10px 14px;
                 margin-bottom: 10px;
                 font-size: 14px;
                 font-weight: bold;
@@ -740,7 +731,7 @@ st.markdown(custom_css, unsafe_allow_html=True)
                 attribution: '© OpenStreetMap'
             }).addTo(map);
 
-            //  Böngésző GPS Helymeghatározása
+            // Böngésző GPS Helymeghatározása
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
