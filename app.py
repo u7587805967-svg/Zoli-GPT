@@ -1469,9 +1469,7 @@ class AsyncAIEngine:
         yield "Hiba: Nincs konfigurálva API kulcs."
         return
     try:
-        # Groq helyett InferenceClient-et példányosítunk
         client = InferenceClient(api_key=HF_TOKEN)
-        
         stream = client.chat.completions.create(
             model=model, 
             messages=messages, 
@@ -1486,7 +1484,6 @@ class AsyncAIEngine:
                 estimated_tokens += max(1, len(content) // 4)
                 yield content
                 
-        # Az adatbázis logolásod változatlanul megmarad!
         if username and estimated_tokens > 0:
             self.db.log_tokens(username, estimated_tokens, model)
             

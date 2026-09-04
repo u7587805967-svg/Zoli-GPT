@@ -8,7 +8,9 @@ duckduckgo-search
 Pillow
 pypdf
 python-docx
-groq
+
+huggingface_hub>=0.20.0
+
 requests
 googlesearch-python
 beautifulsoup4
