@@ -690,13 +690,15 @@ def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
                 st.markdown(
                     """
                     <style>
-                    .custom-class {
-                    padding: 10px 14px;
+                    .my-custom-box {
+                        padding: 10px 14px;
+                        border-left: 4px solid #007bff;
                     }
                     </style>
                     """,
                     unsafe_allow_html=True
                 )
+                
                 background-color: #f0f2f6;
                 border-left: 4px solid #007bff;
                 border-radius: 6px;
