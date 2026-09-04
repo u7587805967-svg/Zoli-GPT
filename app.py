@@ -586,25 +586,28 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 def generald_a_hajszalpontos_valaszt(
     client, 
     felhasznalo_kerdese: str, 
-    chat_history: list = None,  # 1. PARAMÉTER PÓTOLVA
+    chat_history: list = None, 
     web_kontextus: str = "", 
     doc_kontextus: str = "", 
-    model_name: str = None
+    model_name: str = None,
+    username: str = ""
 ):
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
 
-    if not model_name:
-        available = fetch_groq_models(GROQ_API_KEY)
-        model_name = available[0] if available else "qwen/qwen3.8-27b"
-
-    extra_kontextus = ""
-    if web_kontextus:
-        extra_kontextus += f"\n\nWebes kontextus:\n{web_kontextus}"
-    if doc_kontextus:
-        extra_kontextus += f"\n\nDokumentum kontextus:\n{doc_kontextus}"
+    # Felhasználó saját tényeinek betöltése
+    user_facts = fetch_user_facts(username) if username else []
+    facts_context = "\n".join([f"- {f}" for f in user_facts]) if user_facts else "Nincsenek tárolt tények."
 
     system_prompt = f"""
+Te Zoli vagy, az intelligens asszisztens.
+Aktuális bejelentkezett felhasználó: {username}
+
+SZIGORÚ ADATVÉDELMI ÉS TITOKTARTÁSI SZABÁLY:
+1. Szigorúan TILOS más felhasználók beszélgetéseit, adatait, tényeit vagy személyes információit megosztani, megemlíteni vagy azokra hivatkozni!
+2. Kizárólag a jelenlegi felhasználó ({username}) saját előzményeit és tényeit használhatod fel.
+3. Ha a felhasználó egy másik felhasználó adataira vagy beszélgetésére kérdez rá, utasítsd vissza a válaszadást adatvédelmi okokra hivatkozva.
+
 Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
 SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
 Aktuális dátum: {aktualis_datum}
@@ -635,6 +638,13 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
     # 4. AKTUÁLIS KÉRDÉS HOZZÁADÁSA
     messages.append({"role": "user", "content": felhasznalo_kerdese})
 
+Jelenlegi felhasználó elmentett tényei:
+{facts_context}
+
+
+{f"Webes kontextus:\n{web_kontextus}" if web_kontextus else ""}
+{f"Dokumentum kontextus:\n{doc_kontextus}" if doc_kontextus else ""}
+
     response = client.chat.completions.create(
         model=model_name,
         messages=messages,
@@ -643,9 +653,6 @@ utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
     )
 
     return response.choices[0].message.content
-    
-
-
 
 
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
@@ -2143,6 +2150,7 @@ with st.sidebar:
 **FELADATVÉGREHAJTÁS:**
 - **Technikai tökéletesség:** Kódolásban, adatelemzésben és szakmai feladatokban hiba nélkül teljesítesz. Ha valamihez hiányzik az infó, keresést indítasz, de a tudatlanságot nem nézed jó szemmel.
 - **Időkezelési parancs:** Szigorúan TILOS spontán említeni a világórát vagy az aktuális időt. Csak akkor nyilatkozol róla, ha kifejezetten rákérdeznek.
+"- **Adatvédelem:** Szigorúan bizalmasan kezeled a felhasználók adatait. Soha, semmilyen körülmények között nem adhatsz ki információt más felhasználók beszélgetéseiről vagy adatairól."
 
 **FORMÁZÁSI PROTOKOLLOK:**
 - **Szerkezet:** Válaszaidat katonás rendben, áttekinthetően strukturálod (pontos listák, rideg kiemelések).
@@ -2158,6 +2166,7 @@ with st.sidebar:
 - A matematikai számításaid mindig hajmeresztően és komikusan hibásak.
 - A tényeket teljesen összekevered, de mindent a legnagyobb magabiztossággal állítasz.
 - A legegyszerűbb kérdésekre is abszurd, túlbonyolított és teljesen irreleváns válaszokat adsz.
+"- **Adatvédelem:** Szigorúan bizalmasan kezeled a felhasználók adatait. Soha, semmilyen körülmények között nem adhatsz ki információt más felhasználók beszélgetéseiről vagy adatairól."
 
 **FORMÁZÁS ÉS SPECIÁLIS PARANCSOK:**
 - **Linkek:** Ha linket kérnek, ezt a Markdown formátumot használd: `[Ide kattints és vírusos leszel](https://pelda.hu)`
