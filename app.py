@@ -118,7 +118,7 @@ selected_model = st.sidebar.selectbox(
     index=0
 )
 
-@st.cache_data(ttl=3600)
+@st.cache_data(max_entries=5, ttl=1800)
 def cached_tool_query(query: str, tool_type: str):
     pass
 
@@ -1338,7 +1338,7 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-@st.cache_data(ttl=3600)
+@st.cache_data(max_entries=5, ttl=1800)
 def fetch_groq_models(api_key: str) -> list[str]:
     """Lekéri az elérhető Groq modelleket, de kizárólag az ALLOWED_MODELS elemeit adja vissza."""
     if not api_key:
