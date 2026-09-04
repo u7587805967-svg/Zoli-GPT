@@ -644,6 +644,7 @@ Jelenlegi felhasználó elmentett tényei:
 
 {f"Webes kontextus:\n{web_kontextus}" if web_kontextus else ""}
 {f"Dokumentum kontextus:\n{doc_kontextus}" if doc_kontextus else ""}
+"""
 
     response = client.chat.completions.create(
         model=model_name,
