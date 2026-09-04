@@ -2236,27 +2236,25 @@ with st.sidebar:
                 st.sidebar.success(f"✅ Mentve ({size_kb})")
 
     with st.expander("🎙️ Hangvezérlés", expanded=False):
-       st.subheader("🎙️ Hang rögzítése")
-       audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
-    
-    # --- ITT VAN AZ ÚJ HUGGING FACE WHISPER RÉSZ ---
+        st.subheader("🎙️ Hang rögzítése")
+        audio = mic_recorder(start_prompt="🎙️ Hang rögzítése", stop_prompt="🛑 Megállítás", just_once=True, key="voice_input")
+        
         if audio and "bytes" in audio:
-        try:
-            with st.spinner("Hang feldolgozása..."):
-                result = client.automatic_speech_recognition(
-                    audio=audio["bytes"],
-                    model="openai/whisper-large-v3-turbo"
-                )
-                transcribed_text = result.text if hasattr(result, 'text') else result.get('text', '')
-                
-                if transcribed_text:
-                    st.success(f"Felismerve: {transcribed_text}")
-                    # Beillesztés a chat üzenetek közé
-                    st.session_state.messages.append({"role": "user", "content": transcribed_text})
-                    st.rerun()
-        except Exception as e:
-            st.error(f"Hiba a hang feldolgozásakor: {e}")
-    # -----------------------------------------------
+            try:
+                with st.spinner("Hang feldolgozása..."):
+                    result = client.automatic_speech_recognition(
+                        audio=audio["bytes"],
+                        model="openai/whisper-large-v3-turbo"
+                    )
+                    transcribed_text = result.text if hasattr(result, 'text') else result.get('text', '')
+                    
+                    if transcribed_text:
+                        st.success(f"Felismerve: {transcribed_text}")
+                        # Beillesztés a chat üzenetek közé
+                        st.session_state.messages.append({"role": "user", "content": transcribed_text})
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Hiba a hang feldolgozásakor: {e}")
 
     if st.session_state.get("voice_playing", False):
         if st.button("🛑 Félbeszakítás / Némítás", type="primary", use_container_width=True):
