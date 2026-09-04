@@ -43,29 +43,7 @@ from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
 from memory import init_memory, add_message, get_messages, render_history
 
-DB_PATH = "database.db"
-
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-init_memory()
-
-render_history()
-
-if prompt := st.chat_input("Írj ide..."):
-    # Felhasználói üzenet mentése és megjelenítése
-    add_message("user", prompt)
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=get_messages()  # Ez a függvény adja át a komplett előzményt!
-        )
-        bot_reply = response.choices[0].message.content
-        st.markdown(bot_reply)
-
-    add_message("assistant", bot_reply)
+DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
 def init_memory_db():
     """Létrehozza a tények tárolására szolgáló táblát."""
@@ -141,7 +119,7 @@ selected_model = st.sidebar.selectbox(
     index=0
 )
 
-@st.cache_data(max_entries=5, ttl=1800)
+@st.cache_data(ttl=3600)
 def cached_tool_query(query: str, tool_type: str):
     pass
 
@@ -1361,7 +1339,7 @@ st.caption(f"Bejelentkezve mint: **{st.session_state.logged_in_user}**")
 
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-@st.cache_data(max_entries=5, ttl=1800)
+@st.cache_data(ttl=3600)
 def fetch_groq_models(api_key: str) -> list[str]:
     """Lekéri az elérhető Groq modelleket, de kizárólag az ALLOWED_MODELS elemeit adja vissza."""
     if not api_key:
