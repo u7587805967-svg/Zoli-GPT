@@ -41,8 +41,29 @@ from streamlit_mic_recorder import mic_recorder
 from ai_engine import UltraAIEngine, UltraConfig
 from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
+from memory import init_memory, add_message, get_messages, render_history
 
-DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
+DB_PATH = "database.db"
+
+init_memory()
+
+render_history()
+
+if prompt := st.chat_input("Írj ide..."):
+    # Felhasználói üzenet mentése és megjelenítése
+    add_message("user", prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=get_messages()  # Ez a függvény adja át a komplett előzményt!
+        )
+        bot_reply = response.choices[0].message.content
+        st.markdown(bot_reply)
+
+    add_message("assistant", bot_reply)
 
 def init_memory_db():
     """Létrehozza a tények tárolására szolgáló táblát."""
