@@ -45,6 +45,8 @@ from memory import init_memory, add_message, get_messages, render_history
 
 DB_PATH = "database.db"
 
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
 init_memory()
 
 render_history()
