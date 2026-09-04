@@ -1463,6 +1463,15 @@ class AsyncAIEngine:
                         
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:5]
 
+def check_tokens():
+    pass
+
+if not HF_TOKEN:
+    st.error("Hiányzik a HF_TOKEN!")
+
+if not HF_TOKEN:
+    st.error("Hiányzik a HF_TOKEN!")
+
     def safe_hf_chat_stream(self, model: str, messages: list, username: str = None):
     if not HF_TOKEN:
         st.error("Hiányzó Hugging Face API kulcs!")
