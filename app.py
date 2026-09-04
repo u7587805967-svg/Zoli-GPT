@@ -1473,31 +1473,31 @@ if not HF_TOKEN:
     st.error("Hiányzik a HF_TOKEN!")
 
     def safe_hf_chat_stream(self, model: str, messages: list, username: str = None):
-    if not HF_TOKEN:
-        st.error("Hiányzó Hugging Face API kulcs!")
-        yield "Hiba: Nincs konfigurálva API kulcs."
-        return
-    try:
-        client = InferenceClient(api_key=HF_TOKEN)
-        stream = client.chat.completions.create(
-            model=model, 
-            messages=messages, 
-            stream=True,
-            max_tokens=1000
-        )
-        
-        estimated_tokens = 0
-        for chunk in stream:
-            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
-                content = chunk.choices[0].delta.content
-                estimated_tokens += max(1, len(content) // 4)
-                yield content
-                
-        if username and estimated_tokens > 0:
-            self.db.log_tokens(username, estimated_tokens, model)
+        if not HF_TOKEN:
+            st.error("Hiányzó Hugging Face API kulcs!")
+            yield "Hiba: Nincs konfigurálva API kulcs."
+            return
+        try:
+            client = InferenceClient(api_key=HF_TOKEN)
+            stream = client.chat.completions.create(
+                model=model, 
+                messages=messages, 
+                stream=True,
+                max_tokens=1000
+            )
             
-    except Exception as e:
-        yield f"Szerver hiba: {e}"
+            estimated_tokens = 0
+            for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    estimated_tokens += max(1, len(content) // 4)
+                    yield content
+                    
+            if username and estimated_tokens > 0:
+                self.db.log_tokens(username, estimated_tokens, model)
+                
+        except Exception as e:
+            yield f"Szerver hiba: {e}"
 
     def text_to_speech(self, text: str) -> bytes:
         if not text: return None
