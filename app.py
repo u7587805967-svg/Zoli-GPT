@@ -127,6 +127,23 @@ selected_model = st.sidebar.selectbox(
 def cached_tool_query(query: str, tool_type: str):
     pass
 
+def keep_alive_worker(url):
+    """Háttérben futó függvény, ami időről időre megnyitja az alkalmazás URL-jét."""
+    while True:
+        time.sleep(600)
+        try:
+            response = requests.get(url, timeout=10)
+            print(f"Keep-alive ping elküldve! Státusz: {response.status_code}")
+        except Exception as e:
+            print(f"Keep-alive hiba: {e}")
+
+PUBLIC_APP_URL = "https://zoli-gpt.streamlit.app"
+
+if "keep_alive_started" not in st.session_state:
+    st.session_state.keep_alive_started = True
+    thread = threading.Thread(target=keep_alive_worker, args=(PUBLIC_APP_URL,), daemon=True)
+    thread.start()
+
 
 def magyar_szoto_normalizalo(text: str) -> list[str]:
     """
