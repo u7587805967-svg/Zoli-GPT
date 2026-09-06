@@ -47,6 +47,9 @@ import config
 import session
 from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
 from utils import format_timestamp, clean_html_tags
+from pipeline import run_pipeline
+
+eredmeny = run_pipeline(user_query, docs)
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
