@@ -63,10 +63,33 @@ def self_correct_answer(original_answer: str, context: list[str]) -> str:
     )
     return response.choices[0].message.content
 
+def fix_grammar_and_style(draft_text: str) -> str:
+    system_prompt = (
+        "Feladatod a megadott magyar nyelvű szöveg nyelvtani, helyesírási és fogalmazási javítása.\n"
+        "1. Javítsd ki a helyesírási hiba, elírásokat és stilisztikai döccenőket.\n"
+        "2. Tedd gördülékennyé a megfogalmazást, de szigorúan tartsd meg az eredeti hangvételt és a ténybeli tartalmát!\n"
+        "3. Ne tegyél hozzá semmilyen kommentárt, csak a javított szöveget add vissza."
+    )
+
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-20b",
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": draft_text}
+        ]
+    )
+    return response.choices[0].message.content
+
 
 def run_pipeline(user_query: str, raw_database_docs: list[str]) -> str:
     search_queries = rewrite_query(user_query)
     relevant_docs = rerank_documents(user_query, raw_database_docs, top_k=3)
+    
     draft_answer = generate_creative_answer(user_query, relevant_docs)
-    final_answer = self_correct_answer(draft_answer, relevant_docs)
+    
+    fact_checked_answer = self_correct_answer(draft_answer, relevant_docs)
+    
+    final_answer = fix_grammar_and_style(fact_checked_answer)
+    
     return final_answer
