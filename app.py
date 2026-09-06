@@ -91,7 +91,7 @@ def fetch_user_facts(username: str) -> list[str]:
         cursor.execute("SELECT fact FROM user_memories WHERE username=? ORDER BY id DESC LIMIT 20", (username,))
         return [row[0] for row in cursor.fetchall()]
 
-def extract_and_save_facts(username: str, user_message: str, groq_api_key: str, model: str = "llama-3.3-70b-versatile"):
+def extract_and_save_facts(username: str, user_message: str, groq_api_key: str, model: str = "groq/compound"):
     """Elemezi az üzenetet és elmenti a személyes tényeket."""
     if len(user_message.strip()) < 10 or not groq_api_key:
         return
