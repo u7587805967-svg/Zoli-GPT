@@ -586,6 +586,67 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 
     return "\n\n".join(kontextus_blokkok)
 
+def tobblepcsos_ellenorzo_hurok(
+    client, 
+    felhasznalo_kerdese: str, 
+    aktualis_valasz: str, 
+    kontextus: str = "", 
+    model_name: str = "llama-3.3-70b-versatile",
+    max_ciklus: int = 2
+) -> str:
+    """
+    Többlépcsős iteratív ellenőrzőhurok a válasz ténybeli és logikai pontosságáért.
+    """
+    for ciklus in range(max_ciklus):
+        critique_prompt = f"""
+        Tekintsd át az alábbi AI által generált válaszpíszkozatot!
+
+        KÉRDEZŐ KÉRDÉSE: "{felhasznalo_kerdese}"
+        ELÉRHERŐ KONTEXTUS: "{kontextus[:2000]}"
+        JELENLEGI VÁLASZ PISZKOZAT:
+        "{aktualis_valasz}"
+
+        FELADAT:
+        Szigorúan vizsgáld meg a válaszban:
+        1. Van-e benne ténybeli vagy logikai hiba?
+        2. Tartalmaz-e hibás matematikai számításokat?
+        3. Van-e benne felesleges mellébeszélés vagy Ismétlés?
+
+        KIMENETI FORMÁTUM:
+        - Ha a válasz hibátlan és pontos, válaszolj KIZÁRÓLAG ezzel az egy szóval: MEGFELELŐ
+        - Ha hibát találsz, pontokba szedve sorold fel a pontos javítandó pontokat!
+        """
+
+        critique_response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": critique_prompt}],
+            temperature=0.0,
+            max_tokens=600
+        ).choices[0].message.content.strip()
+
+        if "MEGFELELŐ" in critique_response.upper() or "MEGFELELO" in critique_response.upper():
+            break
+
+        refinement_prompt = f"""
+        Javítsd és finomítsd a korábbi választ a feltárt kritikai észrevételek alapján!
+
+        EREDETI KÉRDÉS: "{felhasznalo_kerdese}"
+        KORÁBBI VÁLASZ: "{aktualis_valasz}"
+        ÉPTŐ KRITIKA ÉS HIBÁK: "{critique_response}"
+
+        Írd újra a választ úgy, hogy az tökéletesen pontos, strukturált és sallangmentes legyen!
+        """
+
+        aktualis_valasz = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": refinement_prompt}],
+            temperature=0.1,
+            max_tokens=2500
+        ).choices[0].message.content.strip()
+
+    return aktualis_valasz
+
+
 def generald_a_hajszalpontos_valaszt_v2(
     client, 
     felhasznalo_kerdese: str, 
@@ -613,7 +674,7 @@ KÉRDEZŐ KÉRDÉSE: "{felhasznalo_kerdese}"
 FELADAT:
 1. Lépésről lépésre elemezd a problémát!
 2. Azonosítsd a lehetséges csapdákat, matematikai vagy logikai hibákat!
-3. Fogalmazz meg egy tűéles, pontos választ a kontextus és a tudásod alapján!
+3. Fogalmazz meg egy világos, jól strukturált elsődleges választ!
 """
 
     messages = [{"role": "system", "content": reasoning_prompt}]
@@ -629,23 +690,28 @@ FELADAT:
         max_tokens=2500
     ).choices[0].message.content
 
-    reflection_prompt = f"""
-Tekintsd át az alábbi piszkozatot, amit egy AI generált a következő kérdésre.
+    verified_response = tobblepces_ellenorzo_hurok(
+        client=client,
+        felhasznalo_kerdese=felhasznalo_kerdese,
+        aktualis_valasz=draft_response,
+        kontextus=extra_kontextus,
+        model_name=model_name,
+        max_ciklus=2
+    )
 
-Kérdés: "{felhasznalo_kerdese}"
-Piszkozat:
-{draft_response}
+    final_polishing_prompt = f"""
+Itt van a verifikált válasz. Végezd el rajta a végső simításokat:
+- Biztosítsd a tiszta Markdown formátumot (bold kiemelések, rendezett listák).
+- Töröld a felesleges felvezető mondatokat (pl. "Íme a válasz:").
+- Tartsd meg a hivatkozott forrásokat, ha vannak!
 
-Módosítsd és finomítsd a választ:
-- Javíts ki minden logikai, ténybeli vagy matematikai pontatlanságot!
-- Távolítsd el a felesleges mellébeszélést és a sablonszövegeket!
-- Tartsd meg a világos, strukturált formátumot (listák, kiemelések).
-- Hivatkozz a forrásokra, ha vannak!
+Válasz:
+{verified_response}
 """
 
     final_response = client.chat.completions.create(
         model=model_name,
-        messages=[{"role": "user", "content": reflection_prompt}],
+        messages=[{"role": "user", "content": final_polishing_prompt}],
         temperature=0.0,
         max_tokens=3000
     ).choices[0].message.content
