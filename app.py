@@ -36,6 +36,7 @@ from sentence_transformers import SentenceTransformer
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_mic_recorder import mic_recorder
+import threading
 
 # Saját modulok
 from ai_engine import UltraAIEngine, UltraConfig, auto_select_model
