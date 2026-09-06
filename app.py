@@ -54,24 +54,25 @@ import config
 import session
 from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
 from utils import format_timestamp, clean_html_tags
-from advanced_precision import PrecisionMasterPipeline
-
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
-precision_engine = PrecisionMasterPipeline(
-    groq_api_key=GROQ_API_KEY, 
-    model_name="groq/compound"
+from advanced_precision import (
+    magyar_stemmer,
+    HyDEQueryExpander,
+    HybridPrecisionRetriever,
+    DeterministicMathVerifier,
+    FactualityGuardrail,
+    MultiStageSelfCorrectionLoop,
+    SelfConsistencyEnsemble,
+    PrecisionMasterPipeline
 )
 
-result = precision_engine.execute_precision_query(
-    user_query=felhasznalo_kerdese,
-    web_context=webes_kontextus,
-    doc_context=dokumentum_kontextus,
-    use_ensemble=False  # Nehéz kérdéseknél True-ra állítható
-)
+groq_api_key = st.secrets.get("GROQ_API_KEY")
 
-st.markdown(result["answer"])
-st.caption(f" Ténybeli pontossági skór: {result['factuality_score']}% |  {result['execution_time_seconds']} mp")
+hyde = HyDEQueryExpander(groq_client=groq_client)
+guardrail = FactualityGuardrail(groq_client=groq_client)
+corrector = MultiStageSelfCorrectionLoop(groq_client=groq_client)
+ensemble = SelfConsistencyEnsemble(groq_client=groq_client)
+
+master_pipeline = PrecisionMasterPipeline(groq_api_key=groq_api_key)
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
