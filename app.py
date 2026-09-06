@@ -44,7 +44,7 @@ from search import fetch_all_urls
 from memory import init_memory, add_message, get_messages, render_history
 import config
 import session
-from constants import PESONA_PROMPT_ZOLI, AVAILABLE_MODELS
+from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
 from utils import format_timestamp, clean_html_tags
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
