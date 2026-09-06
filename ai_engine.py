@@ -24,8 +24,15 @@ cfg = UltraConfig()
 
 @st.cache_resource
 def get_ultra_embedder():
-    # Gyors és többnyelvű vektoros beágyazó modell
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+def auto_select_model(query: str) -> str:
+    complex_keywords = ["számold", "kód", "python", "bizonyítsd", "miért", "tervezz", "elemzés", "algoritmus", "optimalizáld"]
+    query_lower = query.lower()
+    
+    if any(kw in query_lower for kw in complex_keywords) or len(query) > 150:
+        return "groq/compound"
+    return "qwen/qwen3.8-27b"
 
 class UltraSearchEngine:
     def __init__(self, groq_api_key: str):

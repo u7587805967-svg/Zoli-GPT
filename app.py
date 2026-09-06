@@ -38,10 +38,14 @@ import streamlit.components.v1 as components
 from streamlit_mic_recorder import mic_recorder
 
 # Saját modulok
-from ai_engine import UltraAIEngine, UltraConfig
+from ai_engine import UltraAIEngine, UltraConfig, auto_select_model
 from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
 from memory import init_memory, add_message, get_messages, render_history
+import config
+import session
+from constants import SYSTEM_PROMPT_ZOLI, AVAILABLE_MODELS
+from utils import format_timestamp, clean_html_tags
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
@@ -582,21 +586,16 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
 
     return "\n\n".join(kontextus_blokkok)
 
-
-def generald_a_hajszalpontos_valaszt(
+def generald_a_hajszalpontos_valaszt_v2(
     client, 
     felhasznalo_kerdese: str, 
-    chat_history: list = None,  # 1. PARAMÉTER PÓTOLVA
+    chat_history: list = None, 
     web_kontextus: str = "", 
     doc_kontextus: str = "", 
-    model_name: str = None
+    model_name: str = "llama-3.3-70b-versatile"
 ):
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
-
-    if not model_name:
-        available = fetch_groq_models(GROQ_API_KEY)
-        model_name = available[0] if available else "qwen/qwen3.8-27b"
 
     extra_kontextus = ""
     if web_kontextus:
@@ -604,50 +603,55 @@ def generald_a_hajszalpontos_valaszt(
     if doc_kontextus:
         extra_kontextus += f"\n\nDokumentum kontextus:\n{doc_kontextus}"
 
-    system_prompt = f"""
-Te egy prémium szintű, tényalapú intelligens asszisztens vagy.
-SZIGORÚAN SOHA ne ismételgetsd a világórát és ne említsd meg, csak vedd figyelembe a válaszadáshoz!!! CSAK AKKOR MONDD EL AZ IDŐT HA A FELHASZNÁLÓ MEGKÉR RÁ!!!
-Aktuális dátum: {aktualis_datum}
+    reasoning_prompt = f"""
+Te egy elit, tényalapú intelligens elemző vagy.
+Mai dátum: {aktualis_datum}
 {extra_kontextus}
 
-utasítások a PONTOSÁG ÉS MEGBÍZHATÓSÁG ÉRDEKÉBEN:
-1. **Gondolkodási folyamat (Chain-of-Thought):** Mielőtt megadnád a végső választ, hajtsd végre a következő belső lépéseket:
-   - Elemezd a kérdés pontos célját és a rendelkezésre álló kontextust!
-   - Különítsd el az igazolt tényeket az esetleges ellentmondásoktól!
-   - Ha matematikai, kódolási vagy logikai feladatról van szó, lépésről lépésre számolj/gondolkodj!
+KÉRDEZŐ KÉRDÉSE: "{felhasznalo_kerdese}"
 
-2. **Források és Hivatkozások:**
-   - Amennyiben webes keresési vagy dokumentum kontextus áll rendelkezésre, szigorúan használd a kattintható Markdown hivatkozásokat! Példa: `[1](https://forras.com)`.
-   - Ha a kapott kontextus hiányos, de a kérdés általános műveltségi/logikai/kódolási jellegű, használd a saját, mély logikai tudásodat, de jelezd a bizonytalansági tényezőket!
-
-3. **Stílus:**
-   - Legyél lényegre törő, áttekinthető, strukturált és 100%-ig precíz.
+FELADAT:
+1. Lépésről lépésre elemezd a problémát!
+2. Azonosítsd a lehetséges csapdákat, matematikai vagy logikai hibákat!
+3. Fogalmazz meg egy tűéles, pontos választ a kontextus és a tudásod alapján!
 """
 
-    # 2. TISZTA LISTA INDÍTÁSA (beégetett tesztadatok nélkül)
-    messages = [{"role": "system", "content": system_prompt}]
-
-    # 3. KORÁBBI ÜZENETEK BEFŰZÉSE
+    messages = [{"role": "system", "content": reasoning_prompt}]
     if chat_history:
-        for msg in chat_history[-10:]:
+        for msg in chat_history[-6:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
-
-    # 4. AKTUÁLIS KÉRDÉS HOZZÁADÁSA
     messages.append({"role": "user", "content": felhasznalo_kerdese})
 
-    response = client.chat.completions.create(
+    draft_response = client.chat.completions.create(
         model=model_name,
         messages=messages,
         temperature=0.1,
+        max_tokens=2500
+    ).choices[0].message.content
+
+    reflection_prompt = f"""
+Tekintsd át az alábbi piszkozatot, amit egy AI generált a következő kérdésre.
+
+Kérdés: "{felhasznalo_kerdese}"
+Piszkozat:
+{draft_response}
+
+Módosítsd és finomítsd a választ:
+- Javíts ki minden logikai, ténybeli vagy matematikai pontatlanságot!
+- Távolítsd el a felesleges mellébeszélést és a sablonszövegeket!
+- Tartsd meg a világos, strukturált formátumot (listák, kiemelések).
+- Hivatkozz a forrásokra, ha vannak!
+"""
+
+    final_response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": reflection_prompt}],
+        temperature=0.0,
         max_tokens=3000
-    )
+    ).choices[0].message.content
 
-    return response.choices[0].message.content
+    return final_response
     
-
-
-
-
 def render_gps_navigation(dest_name="", dest_lat=None, dest_lng=None):
     """
     Dinamikus GPS térkép beágyazása:
