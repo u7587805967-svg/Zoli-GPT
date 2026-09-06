@@ -339,14 +339,15 @@ class FactualityGuardrail:
         if not self.client or not context.strip():
             return {"factuality_score": 100, "hallucinations": [], "is_valid": True}
 
+        # Properly escape inner triple quotes using backslashes
         prompt = f"""
         Tekintsd át az alábbi AI által generált válaszpíszkozatot a megadott forráskontextus tükrében!
 
         FORRÁS KONTEXTUS:
-        """{context[:3000]}"""
+        \"\"\"{context[:3000]}\"\"\"
 
         GENERÁLT VÁLASZ PISZKOZAT:
-        """{draft_answer}"""
+        \"\"\"{draft_answer}\"\"\"
 
         FELADAT:
         1. Azonosíts minden olyan egyedi tényt, számot, dátumot vagy nevet a válaszban, ami ELLENTMOND a kontextusnak vagy egyáltalán NEM TÁMOGATOTT a forrás által!
