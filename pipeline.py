@@ -1,11 +1,11 @@
 import os
-from openai import OpenAI
+from groq import Groq
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def rewrite_query(user_query: str) -> list[str]:
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="groq/compound",
         temperature=0.7,
         messages=[
             {"role": "system", "content": "Generálj 3 eltérő megfogalmazású keresőkifejezést a megadott kérdésből. Csak a keresőkifejezéseket add meg, új sorokkal elválasztva!"},
@@ -32,8 +32,8 @@ def generate_creative_answer(query: str, context: list[str]) -> str:
     user_content = f"Kontextus:\n{formatted_context}\n\nKérdés: {query}"
 
     response = client.chat.completions.create(
-        model="groq/compound",
-        temperature=0.4,
+        model="llama-3.3-70b-versatile",
+        temperature=0.35,
         top_p=0.85,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -54,8 +54,8 @@ def self_correct_answer(original_answer: str, context: list[str]) -> str:
     user_content = f"Kontextus:\n{formatted_context}\n\nGenerált válasz:\n{original_answer}"
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.0,  # Szigorú, determinisztikus ellenőrzés
+        model="llama-3.1-8b-instant",
+        temperature=0.0,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
@@ -66,11 +66,7 @@ def self_correct_answer(original_answer: str, context: list[str]) -> str:
 
 def run_pipeline(user_query: str, raw_database_docs: list[str]) -> str:
     search_queries = rewrite_query(user_query)
-    
     relevant_docs = rerank_documents(user_query, raw_database_docs, top_k=3)
-    
     draft_answer = generate_creative_answer(user_query, relevant_docs)
-    
     final_answer = self_correct_answer(draft_answer, relevant_docs)
-    
     return final_answer
