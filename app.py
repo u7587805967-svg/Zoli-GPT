@@ -54,6 +54,22 @@ import config
 import session
 from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
 from utils import format_timestamp, clean_html_tags
+from advanced_precision import PrecisionMasterPipeline
+
+precision_engine = PrecisionMasterPipeline(
+    groq_api_key=GROQ_API_KEY, 
+    model_name="groq/compound"
+)
+
+result = precision_engine.execute_precision_query(
+    user_query=felhasznalo_kerdese,
+    web_context=webes_kontextus,
+    doc_context=dokumentum_kontextus,
+    use_ensemble=False  # Nehéz kérdéseknél True-ra állítható
+)
+
+st.markdown(result["answer"])
+st.caption(f" Ténybeli pontossági skór: {result['factuality_score']}% |  {result['execution_time_seconds']} mp")
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
