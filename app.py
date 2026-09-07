@@ -56,7 +56,7 @@ from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
 from utils import format_timestamp, clean_html_tags
 from advanced_precision import (
     magyar_stemmer,
-    expand,
+    HyDEQueryExpander,
     HybridPrecisionRetriever,
     DeterministicMathVerifier,
     FactualityGuardrail,

@@ -11,13 +11,20 @@ from functools import lru_cache
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 
-def expand(self, query):
-    response = self.groq_client.chat.completions.create(
-        model="groq/compound",
-        messages=[{"role": "user", "content": f"Write a brief draft answer for: {query}"}],
-        max_tokens=100
-    )
-    return [query, response.choices[0].message.content]
+class HyDEQueryExpander:
+    def __init__(self, groq_client):
+        self.groq_client = groq_client
+
+    def expand(self, query):
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="groq/compound",
+                messages=[{"role": "user", "content": f"Write a brief draft answer for: {query}"}],
+                max_tokens=100
+            )
+            return [query, response.choices[0].message.content]
+        except Exception:
+            return [query]
 
 # Rendszer & AI könyvtárak
 try:
