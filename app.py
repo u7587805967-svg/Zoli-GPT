@@ -2334,21 +2334,21 @@ with st.sidebar:
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
         uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
-        
-if uploaded_file:
-    content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
-    size_kb = f"{round(len(uploaded_file.getvalue()) / 1024, 1)} KB"
+        if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
+            ext = uploaded_file.name.split(".")[-1].lower()
+            content = ""
+            size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
 
-    if content:
-        ai_engine.ingest_document(
-            text=content,
-            doc_name=uploaded_file.name,
-            username=active_chat_user,
-            text_model=TEXT_MODEL,
-            file_size_str=size_kb
-        )
-        st.session_state[f"idx_{uploaded_file.name}"] = True
-        st.sidebar.success(f"Sikeresen indexelve: {uploaded_file.name}")
+        if content:
+            ai_engine.ingest_document(
+                text=content,
+                doc_name=uploaded_file.name,
+                username=active_chat_user,
+                text_model=TEXT_MODEL,
+                file_size_str=size_kb
+            )
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success(f"Sikeresen indexelve: {uploaded_file.name}")
 
         if st.button("🤖 Ágens elemzés indítása", use_container_width=True):
             with st.spinner("Az AutonomousAgent elemzi a fájlt..."):
@@ -2432,26 +2432,18 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
-if audio and isinstance(audio, dict) and audio.get("bytes"):
-    with st.spinner("Hangjegyzet feldolgozása..."):
+if audio:
+    with st.spinner(" Hangjegyzet feldolgozása..."):
         try:
             st.session_state.mute_voice = False
             if GROQ_API_KEY:
                 client = Groq(api_key=GROQ_API_KEY)
                 translation = client.audio.transcriptions.create(
-                    file=("audio.wav", audio["bytes"]),
+                    file=("audio.wav", audio['bytes']),
                     model="whisper-large-v3-turbo",
                     language="hu"
                 )
                 transcribed_text = translation.text.strip() if translation.text else ""
-
-                if transcribed_text:
-                    st.session_state.messages.append({"role": "user", "content": transcribed_text})
-            else:
-                st.error("A GROQ_API_KEY nincs beállítva!")
-        except Exception as e:
-            st.error(f"Hiba történt a feldolgozás során: {e}")
-
                 if transcribed_text:
                     processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
                     st.session_state.voice_text = processed_voice
