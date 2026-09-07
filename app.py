@@ -64,9 +64,33 @@ from advanced_precision import (
     SelfConsistencyEnsemble,
     PrecisionMasterPipeline
 )
+from engine import AutonomousAgent, UniversalFile
 
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
+
+async def main():
+    agent = AutonomousAgent(session_id="usr_session_9981")
+
+    json_file = UniversalFile.from_bytes(
+        filename="konfiguracio.json",
+        raw_data=b'{"szolgaltatas": "AI Engine", "verzio": "2.0"}'
+    )
+
+    image_file = UniversalFile.from_bytes(
+        filename="analizis.png",
+        raw_data=b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR..."
+    )
+
+    result = await agent.execute_task(
+        prompt="Elemzed a feltöltött dokumentumot és a képet!",
+        files=[json_file, image_file]  # Akár elési út is megadható: "dokumentum.pdf"
+    )
+
+    print("Eredmény:", result)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 @st.cache_resource
 def get_pipeline(api_key: str):
