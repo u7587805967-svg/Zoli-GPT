@@ -66,6 +66,21 @@ from advanced_precision import (
 )
 from engine import AutonomousAgent, UniversalFile
 
+def run_agent_analysis(uploaded_file, active_user: str):
+    """Elvégzi a fájl átalakítását és lefuttatja az ágenst."""
+    async def _async_task():
+        agent = AutonomousAgent(session_id=f"usr_session_{active_user}")
+        universal_doc = UniversalFile.from_bytes(
+            filename=uploaded_file.name,
+            raw_data=uploaded_file.getvalue()
+        )
+        return await agent.execute_task(
+            prompt=f"Elemzed a feltöltött fájlt: {uploaded_file.name}",
+            files=[universal_doc]
+        )
+    
+    return asyncio.run(_async_task())
+
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
 
@@ -2323,6 +2338,30 @@ with st.sidebar:
             ext = uploaded_file.name.split(".")[-1].lower()
             content = ""
             size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+
+        if content:
+            ai_engine.ingest_document(
+                text=content,
+                doc_name=uploaded_file.name,
+                username=active_chat_user,
+                text_model=TEXT_MODEL,
+                file_size_str=size_kb
+            )
+            st.session_state[f"idx_{uploaded_file.name}"] = True
+            st.sidebar.success(f"Sikeresen indexelve: {uploaded_file.name}")
+
+        if st.button("🤖 Ágens elemzés indítása", use_container_width=True):
+            with st.spinner("Az AutonomousAgent elemzi a fájlt..."):
+                agent_result = run_agent_analysis(uploaded_file, active_chat_user)
+                
+                db_repo.log_message(
+                    active_chat_user, 
+                    "assistant", 
+                    str(agent_result), 
+                    "text", 
+                    thread_id=st.session_state.get("current_thread", "default")
+                )
+                st.rerun()
             
             if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
             elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])

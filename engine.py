@@ -127,46 +127,59 @@ class CodeOptimizer:
 
 
 class AutonomousAgent:
-    """Teljes ágensi autonómiát és univerzális fájlkezelést biztosító fő AI osztály."""
+    """Teljes ágensi autonómiát és univerzális fájlkezelést biztosító fő AI osztály."""[cite: 1]
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.memory = ContextMemory(session_id=session_id)
-        self.verifier = FactVerifier()
-        self.multimodal = MultimodalProcessor()
-        self.optimizer = CodeOptimizer()
+        self.memory = ContextMemory(session_id=session_id)[cite: 1]
+        self.verifier = FactVerifier()[cite: 1]
+        self.multimodal = MultimodalProcessor()[cite: 1]
+        self.optimizer = CodeOptimizer()[cite: 1]
+
+    async def upload_file(self, file_input: Union[UniversalFile, str, Path]) -> Dict[str, Any]:
+        """Fájl automatikus rögzítése a memóriába kimeneti válasz generálása nélkül."""
+        file_obj = UniversalFile.from_path(file_input) if isinstance(file_input, (str, Path)) else file_input[cite: 1]
+        
+        self.memory.add_file(file_obj)[cite: 1]
+        
+        processing_result = await self.multimodal.process_file(file_obj)[cite: 1]
+        
+        return {
+            "status": "stored_in_memory",
+            "filename": file_obj.filename,
+            "content_type": file_obj.content_type,
+            "size_bytes": file_obj.size_bytes
+        }
 
     async def execute_task(
         self,
         prompt: str,
         files: Optional[List[Union[UniversalFile, str, Path]]] = None
     ) -> Dict[str, Any]:
-        logger.info(f"Autonóm feladat indítása [Session: {self.session_id}]")
+        logger.info(f"Autonóm feladat indítása [Session: {self.session_id}]")[cite: 1]
         
-        processed_names = []
         if files:
             for item in files:
-                file_obj = UniversalFile.from_path(item) if isinstance(item, (str, Path)) else item
-                self.memory.add_file(file_obj)
-                await self.multimodal.process_file(file_obj)
-                processed_names.append(file_obj.filename)
+                await self.upload_file(item)
 
-        context = self.memory.retrieve_full_context()
+        attached_files = [f.filename for f in self.memory.attached_files][cite: 1]
+        context = self.memory.retrieve_full_context()[cite: 1]
+
         raw_response = (
             f"Autonóm válasz a(z) '{prompt}' kérésre. "
-            f"Feldolgozott fájlok: {processed_names}. Előzmények: {len(context['history'])}"
+            f"Elérhető fájlok a memóriában: {attached_files}. Előzmények: {len(context['history'])}"[cite: 1]
         )
 
-        is_valid = await self.verifier.verify_output(raw_response)
+        is_valid = await self.verifier.verify_output(raw_response)[cite: 1]
         if not is_valid:
-            raise ValueError("A válasz megbukott a verifikációs ellenőrzésen.")
+            raise ValueError("A válasz megbukott a verifikációs ellenőrzésen.")[cite: 1]
 
-        self.memory.add_interaction(prompt, raw_response, processed_names)
-        self.optimizer.optimize_runtime()
+        self.memory.add_interaction(prompt, raw_response, attached_files)[cite: 1]
+        self.optimizer.optimize_runtime()[cite: 1]
 
         return {
-            "status": TaskStatus.COMPLETED.value,
+            "status": TaskStatus.COMPLETED.value,[cite: 1]
             "response": raw_response,
             "verified": is_valid,
-            "processed_files": processed_names
+            "processed_files": attached_files
         }
