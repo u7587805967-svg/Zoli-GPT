@@ -178,7 +178,7 @@ class AutonomousAgent:
         self.optimizer.optimize_runtime()[cite: 1]
 
         return {
-            "status": TaskStatus.COMPLETED.value,[cite: 1]
+            "status": TaskStatus.COMPLETED.value,
             "response": raw_response,
             "verified": is_valid,
             "processed_files": attached_files
