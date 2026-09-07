@@ -11,6 +11,12 @@ from functools import lru_cache
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 
+class HyDEQueryExpander:
+    def __init__(self, groq_client=None):
+        self.groq_client = groq_client
+    def expand(self, query):
+        return [query]
+
 # Rendszer & AI könyvtárak
 try:
     from groq import Groq
