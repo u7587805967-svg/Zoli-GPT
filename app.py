@@ -2432,18 +2432,23 @@ def generate_docx_download(text: str) -> bytes:
     bio.seek(0)
     return bio.getvalue()
 
-if audio:
-    with st.spinner(" Hangjegyzet feldolgozása..."):
+if audio and isinstance(audio, dict) and audio.get("bytes"):
+    with st.spinner("Hangjegyzet feldolgozása..."):
         try:
             st.session_state.mute_voice = False
             if GROQ_API_KEY:
                 client = Groq(api_key=GROQ_API_KEY)
                 translation = client.audio.transcriptions.create(
-                    file=("audio.wav", audio['bytes']),
+                    file=("audio.wav", audio["bytes"]),
                     model="whisper-large-v3-turbo",
                     language="hu"
                 )
                 transcribed_text = translation.text.strip() if translation.text else ""
+            else:
+                st.error("A GROQ_API_KEY nincs beállítva!")
+        except Exception as e:
+            st.error(f"Hiba történt a feldolgozás során: {e}")
+
                 if transcribed_text:
                     processed_voice = ai_engine.anonymize_gdpr(ai_engine.validate_url_safety(transcribed_text))
                     st.session_state.voice_text = processed_voice
