@@ -20,7 +20,6 @@ class TaskStatus(Enum):
 
 @dataclass
 class UniversalFile:
-    """Univerzális fájlreprezentáció bármilyen fájltípushoz (szöveg, kép, audió, videó, PDF, bináris)."""
     filename: str
     content_type: str
     size_bytes: int
@@ -57,7 +56,6 @@ class UniversalFile:
 
 @dataclass
 class ContextMemory:
-    """Végtelen kontextusablak és dinamikus multimokális memóriatár."""
     session_id: str
     history: List[Dict[str, Any]] = field(default_factory=list)
     attached_files: List[UniversalFile] = field(default_factory=list)
@@ -81,7 +79,6 @@ class ContextMemory:
 
 
 class FactVerifier:
-    """Determinisztikus tényellenőrző és logikai verifikációs modul (0% hallucináció)."""
 
     @staticmethod
     async def verify_output(content: str) -> bool:
@@ -91,7 +88,6 @@ class FactVerifier:
 
 
 class MultimodalProcessor:
-    """Valós idejű multimokális és univerzális fájlfeldolgozó motor (<100ms válaszidő)."""
 
     @staticmethod
     async def process_file(file: UniversalFile) -> Dict[str, Any]:
@@ -118,7 +114,6 @@ class MultimodalProcessor:
 
 
 class CodeOptimizer:
-    """Önjavító kódstruktúra és dinamikus architektúra-optimalizáló engine."""
 
     @staticmethod
     def optimize_runtime() -> bool:
@@ -127,22 +122,20 @@ class CodeOptimizer:
 
 
 class AutonomousAgent:
-    """Teljes ágensi autonómiát és univerzális fájlkezelést biztosító fő AI osztály."""[cite: 1]
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.memory = ContextMemory(session_id=session_id)[cite: 1]
-        self.verifier = FactVerifier()[cite: 1]
-        self.multimodal = MultimodalProcessor()[cite: 1]
-        self.optimizer = CodeOptimizer()[cite: 1]
+        self.memory = ContextMemory(session_id=session_id)
+        self.verifier = FactVerifier()
+        self.multimodal = MultimodalProcessor()
+        self.optimizer = CodeOptimizer()
 
     async def upload_file(self, file_input: Union[UniversalFile, str, Path]) -> Dict[str, Any]:
-        """Fájl automatikus rögzítése a memóriába kimeneti válasz generálása nélkül."""
-        file_obj = UniversalFile.from_path(file_input) if isinstance(file_input, (str, Path)) else file_input[cite: 1]
+        file_obj = UniversalFile.from_path(file_input) if isinstance(file_input, (str, Path)) else file_input
         
-        self.memory.add_file(file_obj)[cite: 1]
+        self.memory.add_file(file_obj)
         
-        processing_result = await self.multimodal.process_file(file_obj)[cite: 1]
+        processing_result = await self.multimodal.process_file(file_obj)
         
         return {
             "status": "stored_in_memory",
@@ -156,26 +149,26 @@ class AutonomousAgent:
         prompt: str,
         files: Optional[List[Union[UniversalFile, str, Path]]] = None
     ) -> Dict[str, Any]:
-        logger.info(f"Autonóm feladat indítása [Session: {self.session_id}]")[cite: 1]
+        logger.info(f"Autonóm feladat indítása [Session: {self.session_id}]")
         
         if files:
             for item in files:
                 await self.upload_file(item)
 
-        attached_files = [f.filename for f in self.memory.attached_files][cite: 1]
-        context = self.memory.retrieve_full_context()[cite: 1]
+        attached_files = [f.filename for f in self.memory.attached_files]
+        context = self.memory.retrieve_full_context()
 
         raw_response = (
             f"Autonóm válasz a(z) '{prompt}' kérésre. "
-            f"Elérhető fájlok a memóriában: {attached_files}. Előzmények: {len(context['history'])}"[cite: 1]
+            f"Elérhető fájlok a memóriában: {attached_files}. Előzmények: {len(context['history'])}"
         )
 
-        is_valid = await self.verifier.verify_output(raw_response)[cite: 1]
+        is_valid = await self.verifier.verify_output(raw_response)
         if not is_valid:
-            raise ValueError("A válasz megbukott a verifikációs ellenőrzésen.")[cite: 1]
+            raise ValueError("A válasz megbukott a verifikációs ellenőrzésen.")
 
-        self.memory.add_interaction(prompt, raw_response, attached_files)[cite: 1]
-        self.optimizer.optimize_runtime()[cite: 1]
+        self.memory.add_interaction(prompt, raw_response, attached_files)
+        self.optimizer.optimize_runtime()
 
 
         return {
