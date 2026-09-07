@@ -2446,7 +2446,7 @@ if audio and isinstance(audio, dict) and audio.get("bytes"):
                 transcribed_text = translation.text.strip() if translation.text else ""
 
                 if transcribed_text:
-                    st.write(transcribed_text)
+                    st.session_state.messages.append({"role": "user", "content": transcribed_text})
             else:
                 st.error("A GROQ_API_KEY nincs beállítva!")
         except Exception as e:
