@@ -177,6 +177,7 @@ class AutonomousAgent:
         self.memory.add_interaction(prompt, raw_response, attached_files)[cite: 1]
         self.optimizer.optimize_runtime()[cite: 1]
 
+
         return {
             "status": TaskStatus.COMPLETED.value,
             "response": raw_response,
