@@ -104,6 +104,7 @@ def save_user_fact(username: str, fact: str):
             )
             conn.commit()
 
+@st.cache_data(ttl=600)
 def fetch_user_facts(username: str) -> list[str]:
     """Lekéri a felhasználóhoz tartozó legfrissebb 20 tényt."""
     with sqlite3.connect(DB_PATH) as conn:
@@ -238,6 +239,7 @@ HUNGARIAN_STOPWORDS = {
     "ebben", "ebbol", "arról", "melyek", "szerint", "után", "során"
 }
 
+@st.cache_data(ttl=3600)
 def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_name: str = None) -> list[str]:
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y-%m-%d")
@@ -522,7 +524,7 @@ def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: i
 
     return "\n\n[...] ".join(selected_chunks) if selected_chunks else full_text[:max_chars]
 
-
+@st.cache_data(ttl=1800)
 def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
     """
     3-szoros Ingyenes Hibrid Kereső Motor (DuckDuckGo + Google Search + Bing Scraper)
