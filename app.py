@@ -2334,21 +2334,21 @@ with st.sidebar:
     with st.expander("📂 Média és Dokumentumok", expanded=False):
         st.subheader("📂 Fájlok és Képek Feltöltése")
         uploaded_file = st.file_uploader("Indexelés (txt, pdf, docx, csv, xlsx) / Kép elemzés (png, jpg)", type=["txt", "pdf", "docx", "csv", "xlsx", "png", "jpg", "jpeg"])
-        if uploaded_file and f"idx_{uploaded_file.name}" not in st.session_state:
-            ext = uploaded_file.name.split(".")[-1].lower()
-            content = ""
-            size_kb = f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+        
+if uploaded_file:
+    content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
+    size_kb = f"{round(len(uploaded_file.getvalue()) / 1024, 1)} KB"
 
-        if content:
-            ai_engine.ingest_document(
-                text=content,
-                doc_name=uploaded_file.name,
-                username=active_chat_user,
-                text_model=TEXT_MODEL,
-                file_size_str=size_kb
-            )
-            st.session_state[f"idx_{uploaded_file.name}"] = True
-            st.sidebar.success(f"Sikeresen indexelve: {uploaded_file.name}")
+    if content:
+        ai_engine.ingest_document(
+            text=content,
+            doc_name=uploaded_file.name,
+            username=active_chat_user,
+            text_model=TEXT_MODEL,
+            file_size_str=size_kb
+        )
+        st.session_state[f"idx_{uploaded_file.name}"] = True
+        st.sidebar.success(f"Sikeresen indexelve: {uploaded_file.name}")
 
         if st.button("🤖 Ágens elemzés indítása", use_container_width=True):
             with st.spinner("Az AutonomousAgent elemzi a fájlt..."):
