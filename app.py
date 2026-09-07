@@ -64,7 +64,7 @@ from advanced_precision import (
     SelfConsistencyEnsemble,
     PrecisionMasterPipeline
 )
-from engine import AutonomousAgent, UniversalFile
+from engine import (AutonomousAgent, UniversalFile)
 
 def run_agent_analysis(uploaded_file, active_user: str):
     """Elvégzi a fájl átalakítását és lefuttatja az ágenst."""
