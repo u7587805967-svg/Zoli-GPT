@@ -68,6 +68,10 @@ from advanced_precision import (
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
 
+@st.cache_resource
+def get_pipeline(api_key: str):
+    return PrecisionMasterPipeline(groq_api_key=api_key)
+
 hyde = HyDEQueryExpander(groq_client=groq_client)
 guardrail = FactualityGuardrail(groq_client=groq_client)
 corrector = MultiStageSelfCorrectionLoop(groq_client=groq_client)
