@@ -2704,11 +2704,12 @@ with tab_chat:
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
-    if prompt := st.chat_input("Írj ide..."):
-       st.session_state.messages.append({"role": "user", "content": prompt})
+    if prompt := st.chat_input("Írj egy üzenetet..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
     
-       with st.chat_message("user"):
-          st.markdown(prompt)
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
