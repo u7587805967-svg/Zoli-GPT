@@ -2704,17 +2704,16 @@ with tab_chat:
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
-    if prompt := st.chat_input("Írj egy üzenetet..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-    
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    prompt = st.chat_input("Írj egy üzenetet...")
 
-    if default_input and not user_input:
+    user_input = prompt if prompt else None
+
+    if 'default_input' in locals() and default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
 
     if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.generating = True
         st.session_state.mute_voice = False
         
@@ -2744,7 +2743,6 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
-                    # 1. AI ROUTER & STRUKTURÁLT JSON ESZKÖZVÁLASZTÁS
                     with st.status(" Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -2770,7 +2768,6 @@ with tab_chat:
                             med_query = user_input
                             agent_status.write(f"⚠️ Router hiba ({router_err}), fallback üzemmód aktív.")
 
-                        # Orvosi keresés
                         if use_med and med_query:
                             agent_status.update(label=" Hivatalos orvosi publikációk kutatása...")
                             med_results = ai_engine.search_medical_database(med_query)
@@ -2780,7 +2777,6 @@ with tab_chat:
                             else:
                                 agent_status.write(f"ℹ️ {med_results}")
 
-                        # RAG / Saját memória keresés
                         if use_rag:
                             agent_status.update(label=" Keresés a személyes emlékekben...")
                             rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
@@ -2792,7 +2788,6 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ Nem találtam idevágó adatot a belső dokumentumokban.")
 
-                        # Webes keresés
                         if use_web:
                             agent_status.update(label=" Webes elemzés folyamatban...")
                             web_results = ai_engine.advanced_deep_web_search(user_input)
@@ -2802,7 +2797,6 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető, tényalapú eredményt.")
 
-                        # URL feldolgozás
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -2811,7 +2805,6 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
-                        # Self-RAG Validáció
                         agent_status.update(label=" Kontextus ellenőrzése (Self-RAG)...")
                         can_answer = True
                         if context_addition.strip(): 
