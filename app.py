@@ -130,7 +130,7 @@ async def main():
 
     result = await agent.execute_task(
         prompt="Elemzed a feltöltött dokumentumot és a képet!",
-        files=[json_file, image_file]  # Akár elési út is megadható: "dokumentum.pdf"
+        files=[json_file, image_file]
     )
 
     print("Eredmény:", result)
