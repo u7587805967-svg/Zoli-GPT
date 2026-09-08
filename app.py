@@ -2716,6 +2716,8 @@ with tab_chat:
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.generating = True
         st.session_state.mute_voice = False
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
         
         raw_user_input = user_input 
         
