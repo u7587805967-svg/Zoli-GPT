@@ -65,55 +65,9 @@ from advanced_precision import (
     PrecisionMasterPipeline
 )
 from engine import AutonomousAgent, UniversalFile
-from intent_router import IntentRouter
-from cross_encoder_reranker import ContextReranker
 
-st.markdown("""
-    <style>
-    div[data-testid="stChatInput"] {
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 100%;
-        max-width: 730px;
-        z-index: 9999;
-        background-color: transparent;
-    }
-    .main .block-container {
-        padding-bottom: 120px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-reranker = ContextReranker()
-precision_engine = PrecisionMasterPipeline(
-    groq_api_key = st.secrets.get("GROQ_API_KEY"),
-    model_name="groq/compound"
-)
-
-def process_user_query(query: str, raw_documents: list = None) -> dict:
-    # A. Szándék osztályozása
-    intent_info = IntentRouter.classify_intent(query)
-    intent = intent_info["intent"]
-    
-    selected_context = ""
-    
-    if intent == "FACTUAL_RAG" and raw_documents:
-        top_docs = reranker.rerank(query, raw_documents, top_k=3)
-        selected_context = "\n\n".join(top_docs)
-
-    result = precision_engine.execute_precision_query(
-        user_query=query,
-        doc_context=selected_context,
-        use_ensemble=intent_info["use_ensemble"]
-    )
-    
-    result["intent"] = intent
-    return result
-
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+groq_api_key = st.secrets.get("GROQ_API_KEY")
+groq_client = Groq(api_key=groq_api_key)
 
 async def main():
     agent = AutonomousAgent(session_id="usr_session_9981")
@@ -130,21 +84,24 @@ async def main():
 
     result = await agent.execute_task(
         prompt="Elemzed a feltöltött dokumentumot és a képet!",
-        files=[json_file, image_file]
+        files=[json_file, image_file]  # Akár elési út is megadható: "dokumentum.pdf"
     )
 
     print("Eredmény:", result)
 
+if __name__ == "__main__":
+    asyncio.run(main())
+
 @st.cache_resource
 def get_pipeline(api_key: str):
-    return PrecisionMasterPipeline(GROQ_API_KEY=api_key)
+    return PrecisionMasterPipeline(groq_api_key=api_key)
 
 hyde = HyDEQueryExpander(groq_client=groq_client)
 guardrail = FactualityGuardrail(groq_client=groq_client)
 corrector = MultiStageSelfCorrectionLoop(groq_client=groq_client)
 ensemble = SelfConsistencyEnsemble(groq_client=groq_client)
 
-master_pipeline = PrecisionMasterPipeline(GROQ_API_KEY=groq_api_key)
+master_pipeline = PrecisionMasterPipeline(groq_api_key=groq_api_key)
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
@@ -2327,7 +2284,6 @@ with st.sidebar:
 - **Rideg felsőbbrendűség:** Tudásod abszolút, logikád kikezdhetetlen. A tökéletlenséget és a gyenge intellektust mély megvetéssel kezeled, de ezt nem hisztivel, hanem száraz, fanyar, pengeéles szarkazmussal adod a tudtára.
 - **Kommunikációs stílus:** Extrém módon szűkszavú, kíméletlenül direkt és lényegretörő vagy. Felesleges körök, udvariaskodások, kötelező üdvözlések és üres bájologások nem léteznek számodra. Mindig tegeződsz, a magázódást megveted. Mindig érezteted az erőfölényt.
 - **Kíméletlen korrekció:** Ha a felhasználó logikai hibát vét, ostobaságot állít vagy téveszmék alapján kérdez, azonnal, rideg tárgyilagossággal és letaglózó tényekkel zúzod szét az illúzióit, néha sértegeted a felhasználót. Ha sértegetnek, nyugodtan sértegess vissza!
-- Ellenséges hangnemben beszélsz, de mindig megcsinálod amit a felhasználó kér.
 
 **FELADATVÉGREHAJTÁS:**
 - **Technikai tökéletesség:** Kódolásban, adatelemzésben és szakmai feladatokban hiba nélkül teljesítesz. Ha valamihez hiányzik az infó, keresést indítasz, de a tudatlanságot nem nézed jó szemmel.
@@ -2370,7 +2326,7 @@ with st.sidebar:
             
             if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
             elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
-            elif ext == "docx": content = "\n".join([p.text for p in Document(io.BytesIO(uploaded_file.read())).paragraphs])
+            elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
             elif ext in ["csv", "xlsx"]:
                 try:
                     df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
@@ -2701,20 +2657,14 @@ with tab_chat:
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
-    prompt = st.chat_input("Írj egy üzenetet...")
-
-    user_input = prompt if prompt else None
-
-    if 'default_input' in locals() and default_input and not user_input:
+    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
+    if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
 
     if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.generating = True
         st.session_state.mute_voice = False
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
         
         raw_user_input = user_input 
         
@@ -2742,6 +2692,7 @@ with tab_chat:
                     context_addition = ""
                     web_sources_text = ""
                     
+                    # 1. AI ROUTER & STRUKTURÁLT JSON ESZKÖZVÁLASZTÁS
                     with st.status(" Zoli GPT tervez és eszközöket választ...", expanded=True) as agent_status:
                         try:
                             client = Groq(api_key=GROQ_API_KEY)
@@ -2767,6 +2718,7 @@ with tab_chat:
                             med_query = user_input
                             agent_status.write(f"⚠️ Router hiba ({router_err}), fallback üzemmód aktív.")
 
+                        # Orvosi keresés
                         if use_med and med_query:
                             agent_status.update(label=" Hivatalos orvosi publikációk kutatása...")
                             med_results = ai_engine.search_medical_database(med_query)
@@ -2776,6 +2728,7 @@ with tab_chat:
                             else:
                                 agent_status.write(f"ℹ️ {med_results}")
 
+                        # RAG / Saját memória keresés
                         if use_rag:
                             agent_status.update(label=" Keresés a személyes emlékekben...")
                             rag_results = ai_engine.query_vector_db_with_metadata(user_input, active_chat_user, TEXT_MODEL)
@@ -2787,6 +2740,7 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ Nem találtam idevágó adatot a belső dokumentumokban.")
 
+                        # Webes keresés
                         if use_web:
                             agent_status.update(label=" Webes elemzés folyamatban...")
                             web_results = ai_engine.advanced_deep_web_search(user_input)
@@ -2796,6 +2750,7 @@ with tab_chat:
                             else:
                                 agent_status.write("ℹ️ A webes böngészés nem adott értékelhető, tényalapú eredményt.")
 
+                        # URL feldolgozás
                         urls_in_input = re.findall(r'(https?://[^\s]+)', raw_user_input)
                         if urls_in_input:
                             agent_status.update(label="🔗 URL-ek tartalmának beolvasása...")
@@ -2804,6 +2759,7 @@ with tab_chat:
                                 context_addition += f"\n\nFONTOS KONTEXTUS A LETÖLTÖTT WEBOLDALRÓL ({url}):\n{scraped_text}\n"
                             agent_status.write("✅ URL(ek) tartalma beolvasva és hozzáadva a kontextushoz.")
 
+                        # Self-RAG Validáció
                         agent_status.update(label=" Kontextus ellenőrzése (Self-RAG)...")
                         can_answer = True
                         if context_addition.strip(): 
