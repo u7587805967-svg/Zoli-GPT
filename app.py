@@ -112,8 +112,8 @@ def process_user_query(query: str, raw_documents: list = None) -> dict:
     result["intent"] = intent
     return result
 
-groq_api_key = st.secrets.get("GROQ_API_KEY")
-groq_client = Groq(api_key=groq_api_key)
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 async def main():
     agent = AutonomousAgent(session_id="usr_session_9981")
