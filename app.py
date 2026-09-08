@@ -135,9 +135,6 @@ async def main():
 
     print("Eredmény:", result)
 
-if __name__ == "__main__":
-    asyncio.run(main())
-
 @st.cache_resource
 def get_pipeline(api_key: str):
     return PrecisionMasterPipeline(groq_api_key=api_key)
@@ -2373,7 +2370,7 @@ with st.sidebar:
             
             if ext == "txt": content = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore")).read()
             elif ext == "pdf": content = "\n".join([p.extract_text() or "" for p in PdfReader(io.BytesIO(uploaded_file.read())).pages])
-            elif ext == "docx": content = "\n".join([p.text for p in docx.Document(io.BytesIO(uploaded_file.read())).paragraphs])
+            elif ext == "docx": content = "\n".join([p.text for p in Document(io.BytesIO(uploaded_file.read())).paragraphs])
             elif ext in ["csv", "xlsx"]:
                 try:
                     df = pd.read_csv(io.BytesIO(uploaded_file.getvalue())) if ext == "csv" else pd.read_excel(io.BytesIO(uploaded_file.getvalue()))
