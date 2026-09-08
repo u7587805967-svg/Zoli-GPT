@@ -68,6 +68,24 @@ from engine import AutonomousAgent, UniversalFile
 from intent_router import IntentRouter
 from cross_encoder_reranker import ContextReranker
 
+st.markdown("""
+    <style>
+    div[data-testid="stChatInput"] {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 730px;
+        z-index: 9999;
+        background-color: transparent;
+    }
+    .main .block-container {
+        padding-bottom: 120px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 reranker = ContextReranker()
 precision_engine = PrecisionMasterPipeline(
     groq_api_key = st.secrets.get("GROQ_API_KEY"),
@@ -2686,7 +2704,8 @@ with tab_chat:
 
     default_input = st.session_state.voice_text if st.session_state.voice_text else ""
     
-    user_input = st.chat_input("Kérdezz bármit...", key="chat_input_field", disabled=st.session_state.generating)
+    if prompt := st.chat_input("Írj ide..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
     if default_input and not user_input:
         user_input = default_input
         st.session_state.voice_text = ""
