@@ -144,7 +144,7 @@ guardrail = FactualityGuardrail(groq_client=groq_client)
 corrector = MultiStageSelfCorrectionLoop(groq_client=groq_client)
 ensemble = SelfConsistencyEnsemble(groq_client=groq_client)
 
-master_pipeline = PrecisionMasterPipeline(groq_api_key=groq_api_key)
+master_pipeline = PrecisionMasterPipeline(GROQ_API_KEY=groq_api_key)
 
 DB_PATH = "database.db"  # Cseréld ki a saját adatbázisod útvonalára, ha eltér
 
