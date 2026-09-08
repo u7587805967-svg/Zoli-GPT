@@ -65,6 +65,34 @@ from advanced_precision import (
     PrecisionMasterPipeline
 )
 from engine import AutonomousAgent, UniversalFile
+from intent_router import IntentRouter
+from cross_encoder_reranker import ContextReranker
+
+reranker = ContextReranker()
+precision_engine = PrecisionMasterPipeline(
+    groq_api_key = st.secrets.get("GROQ_API_KEY"),
+    model_name="groq/compound"
+)
+
+def process_user_query(query: str, raw_documents: list = None) -> dict:
+    # A. Szándék osztályozása
+    intent_info = IntentRouter.classify_intent(query)
+    intent = intent_info["intent"]
+    
+    selected_context = ""
+    
+    if intent == "FACTUAL_RAG" and raw_documents:
+        top_docs = reranker.rerank(query, raw_documents, top_k=3)
+        selected_context = "\n\n".join(top_docs)
+
+    result = precision_engine.execute_precision_query(
+        user_query=query,
+        doc_context=selected_context,
+        use_ensemble=intent_info["use_ensemble"]
+    )
+    
+    result["intent"] = intent
+    return result
 
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
