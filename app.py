@@ -137,7 +137,7 @@ async def main():
 
 @st.cache_resource
 def get_pipeline(api_key: str):
-    return PrecisionMasterPipeline(groq_api_key=api_key)
+    return PrecisionMasterPipeline(GROQ_API_KEY=api_key)
 
 hyde = HyDEQueryExpander(groq_client=groq_client)
 guardrail = FactualityGuardrail(groq_client=groq_client)
