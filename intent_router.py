@@ -4,6 +4,7 @@ from typing import Dict, Any
 class IntentRouter:
     
     @staticmethod
+    @lru_cache(maxsize=2048)
     def classify_intent(query: str) -> Dict[str, Any]:
         query_lower = query.lower().strip()
         
