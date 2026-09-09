@@ -69,9 +69,9 @@ from core_agent_loop import run_reasoning_loop
 from retrieval_context_builder import DynamicMemoryRAG
 
 rag_system = DynamicMemoryRAG(
-    vector_db=your_vector_db_instance,
-    bm25_index=your_bm25_instance,
-    graph_db=your_graph_db_instance
+    vector_db=my_chroma_db,
+    bm25_index=my_bm25_object,
+    graph_db=my_graph_instance
 )
 
 def handle_user_message(user_input: str, user_id: str, llm_client) -> str:
