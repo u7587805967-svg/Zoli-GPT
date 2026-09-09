@@ -75,10 +75,9 @@ rag_system = DynamicMemoryRAG(
 )
 
 def handle_user_message(user_input: str, user_id: str, llm_client) -> str:
-    context = rag_system.retrieve(query=user_input, user_id=user_id)
-    
     enriched_input = f"Kontextus:\n{context}\n\nKérdés: {user_input}"
-        final_response = run_reasoning_loop(
+    
+    final_response = run_reasoning_loop(
         user_input=enriched_input, 
         llm_client=llm_client
     )
