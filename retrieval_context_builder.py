@@ -1,7 +1,7 @@
 from sentence_transformers import CrossEncoder
 
 class DynamicMemoryRAG:
-    def __init__(self, vector_db, bm25_index, graph_db):
+    def __init__(self, vector_db=None, bm25_index=None, graph_db=None):
         self.vector_db = vector_db
         self.bm25 = bm25_index
         self.graph_db = graph_db
