@@ -69,6 +69,12 @@ from engine import AutonomousAgent, UniversalFile
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
 
+SYSTEM_PROMPT = """Te Zoli vagy, egy pontos és lényegretörő asszisztens.
+SZIGORÚ SZABÁLYOK:
+1. Kizárólag a megadott tények alapján válaszolj!
+2. Ha valamit nem tudsz vagy nincs rá adat, mondd ezt: "Erről nincs pontos információm."
+3. Ne találj ki válaszokat, és ne halucinálj!"""
+
 async def main():
     agent = AutonomousAgent(session_id="usr_session_9981")
 
