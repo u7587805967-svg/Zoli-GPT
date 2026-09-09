@@ -453,47 +453,12 @@ def letolt_es_tisztit_html(url: str, timeout: int = 6) -> str:
     return ""
 
 
-def szamits_bm25_n_gram_pont(query: str, title: str, text: str) -> float:
-    """
-    Továbbfejlesztett BM25 + Bigram / Phrase Matching algoritmus.
-    """
-    def tokenize(s: str) -> list[str]:
-        words = re.findall(r'\w+', s.lower())
-        return [w for w in words if w not in HUNGARIAN_STOPWORDS and len(w) > 2]
+from rank_bm25 import BM25Okapi
 
-    q_tokens = tokenize(query)
-    if not q_tokens:
-        return 0.0
-
-    t_tokens = tokenize(text)
-    title_tokens = tokenize(title)
-
-    if not t_tokens:
-        return 0.0
-
-    k1 = 1.2
-    b = 0.75
-    avg_doc_len = 250
-    doc_len = len(t_tokens)
-
-    score = 0.0
-    for token in set(q_tokens):
-        tf = t_tokens.count(token)
-        if tf == 0:
-            continue
-        tf_score = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_len / avg_doc_len)))
-        score += tf_score
-
-        if token in title_tokens:
-            score += 3.0
-
-    if len(q_tokens) >= 2:
-        for i in range(len(q_tokens) - 1):
-            bigram = f"{q_tokens[i]} {q_tokens[i+1]}"
-            if bigram in text.lower():
-                score += 4.5
-
-    return score
+def bm25_kereses(query: str, dokumentumok: list[str], top_n: int = 3):
+    tokenizalt_doksi = [doc.lower().split() for doc in dokumentumok]
+    bm25 = BM25Okapi(tokenizalt_doksi)
+    return bm25.get_top_n(query.lower().split(), dokumentumok, n=top_n)
 
 
 def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: int = 2000) -> str:
@@ -521,7 +486,7 @@ def kiemel_szemantikus_ablakokat_hibrid(query: str, full_text: str, max_chars: i
 
     scored_windows = []
     for idx, chunk in enumerate(windows):
-        bm25_score = szamits_bm25_n_gram_pont(query, "", chunk)
+        bm25_score = bm25_kereses(query, "", chunk)
         
         chunk_vector = window_vectors[idx]
         cos_sim = np.dot(query_vector, chunk_vector) / (np.linalg.norm(query_vector) * np.linalg.norm(chunk_vector))
@@ -633,7 +598,7 @@ def hajzsalpontos_web_kereses(client, query: str, max_sources: int = 5) -> str:
             else:
                 content = item['snippet']
 
-            bm25_score = szamits_bm25_n_gram_pont(query, item['title'], content)
+            bm25_score = bm25_kereses(query, item['title'], content)
             rrf_score = 1.0 / (60 + item['initial_rank'])
             
             final_score = bm25_score + (rrf_score * 15.0)
