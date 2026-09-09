@@ -20,6 +20,7 @@ import secrets
 import sqlite3
 import time
 import urllib.parse
+import chromadb
 
 # Külső csomagok
 import aiohttp
@@ -68,10 +69,11 @@ from engine import AutonomousAgent, UniversalFile
 from core_agent_loop import run_reasoning_loop
 from retrieval_context_builder import DynamicMemoryRAG
 
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+my_chroma_db = chroma_client.get_or_create_collection(name="zoli_docs")
+
 rag_system = DynamicMemoryRAG(
-    vector_db=my_chroma_db,
-    bm25_index=my_bm25_object,
-    graph_db=my_graph_instance
+    vector_db=my_chroma_db
 )
 
 def handle_user_message(user_input: str, user_id: str, llm_client) -> str:
