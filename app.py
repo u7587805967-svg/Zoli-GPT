@@ -66,7 +66,7 @@ from advanced_precision import (
 )
 from engine import AutonomousAgent, UniversalFile
 from core-agent_loop import run_reasoning_loop
-from retrieval-context_builder import DynamicMemoryRAG
+from retrieval_context_builder import DynamicMemoryRAG
 
 rag_system = DynamicMemoryRAG(
     vector_db=your_vector_db_instance,
