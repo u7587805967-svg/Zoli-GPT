@@ -65,6 +65,25 @@ from advanced_precision import (
     PrecisionMasterPipeline
 )
 from engine import AutonomousAgent, UniversalFile
+from core-agent_loop import run_reasoning_loop
+from retrieval-context_builder import DynamicMemoryRAG
+
+rag_system = DynamicMemoryRAG(
+    vector_db=your_vector_db_instance,
+    bm25_index=your_bm25_instance,
+    graph_db=your_graph_db_instance
+)
+
+def handle_user_message(user_input: str, user_id: str, llm_client) -> str:
+    context = rag_system.retrieve(query=user_input, user_id=user_id)
+    
+    enriched_input = f"Kontextus:\n{context}\n\nKérdés: {user_input}"
+        final_response = run_reasoning_loop(
+        user_input=enriched_input, 
+        llm_client=llm_client
+    )
+    
+    return final_response
 
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_api_key)
