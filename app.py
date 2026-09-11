@@ -50,7 +50,7 @@ import threading
 from ai_engine import UltraAIEngine, UltraConfig, auto_select_model
 from database import get_chat_history, init_db, save_message
 from search import fetch_all_urls
-from memory import init_memory, add_message, get_messages, render_history
+rom memory import init_memory, add_message, get_messages, render_history, clear_memory
 import config
 import session
 from constants import PERSONA_PROMPT_ZOLI, AVAILABLE_MODELS
