@@ -81,8 +81,16 @@ rag_system = DynamicMemoryRAG(
     vector_db=my_chroma_db
 )
 
-def handle_user_message(user_input: str, user_id: str, llm_client) -> str:
-    enriched_input = f"Kontextus:\n{context}\n\nKérdés: {user_input}"
+def handle_user_message(user_input: str, user_id: str, llm_client, chroma_collection) -> str:
+    memories = fetch_relevant_memories(user_id, user_input, chroma_collection)
+    memory_context = "\n".join([f"- {m}" for m in memories]) if memories else "Nincsenek kapcsolódó korábbi emlékek."
+
+    enriched_input = (
+        f"--- FELHASZNÁLÓI MEMÓRIA ---\n"
+        f"{memory_context}\n"
+        f"-----------------------------\n\n"
+        f"Kérdés: {user_input}"
+    )
     
     final_response = run_reasoning_loop(
         user_input=enriched_input, 
@@ -164,39 +172,25 @@ def save_user_fact(username: str, fact: str):
             conn.commit()
 
 @st.cache_data(ttl=600)
-def fetch_user_facts(username: str) -> list[str]:
-    """Lekéri a felhasználóhoz tartozó legfrissebb 20 tényt."""
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT fact FROM user_memories WHERE username=? ORDER BY id DESC LIMIT 20", (username,))
-        return [row[0] for row in cursor.fetchall()]
+def save_user_fact_vectorized(username: str, fact: str, chroma_collection):
+    save_user_fact(username, fact)
+    
+    fact_id = f"fact_{username}_{int(time.time())}"
+    chroma_collection.add(
+        documents=[fact],
+        metadatas=[{"username": username, "type": "user_fact"}],
+        ids=[fact_id]
+    )
 
-def extract_and_save_facts(username: str, user_message: str, groq_api_key: str, model: str = "groq/compound"):
-    """Elemezi az üzenetet és elmenti a személyes tényeket."""
-    if len(user_message.strip()) < 10 or not groq_api_key:
-        return
-
-    prompt = f"""
-    Elemezd a következő felhasználói üzenetet!
-    Ha a felhasználó megoszt magáról egy maradandó információt (pl. név, lakhely, foglalkozás, hobbi, preferált nyelv, technológia), nyerd ki azt 1 rövid mondatban!
-    Ha nincs benne személyes tény, válaszolj pontosan ennyit: "NINCS".
-
-    Üzenet: "{user_message}"
-    Kinyert tény (magyarul):
-    """
-    try:
-        client = Groq(api_key=groq_api_key)
-        res = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=60
-        )
-        extracted = res.choices[0].message.content.strip()
-        if extracted and "NINCS" not in extracted.upper():
-            save_user_fact(username, extracted)
-    except Exception:
-        pass
+def fetch_relevant_memories(username: str, query: str, chroma_collection, top_k: int = 5) -> list[str]:
+    results = chroma_collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        where={"$and": [{"username": username}, {"type": "user_fact"}]}
+    )
+    if results and results.get("documents"):
+        return results["documents"][0]
+    return []
 
 ALLOWED_MODELS = [
     "qwen/qwen3.8-27b",
