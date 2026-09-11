@@ -15,6 +15,8 @@ from ultra_web_agent import UltraWebAgent
 with open("main.py", encoding="utf-8") as f:
     exec(f.read())
 
+st.title("Zoli GPT")
+
 app = FastAPI(
     title="ZoliGPT API",
     version="3.0.0",
