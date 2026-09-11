@@ -68,6 +68,9 @@ from advanced_precision import (
 from engine import AutonomousAgent, UniversalFile
 from core_agent_loop import run_reasoning_loop
 from retrieval_context_builder import DynamicMemoryRAG
+import runpy
+
+runpy.run_path("main.py")
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 my_chroma_db = chroma_client.get_or_create_collection(name="zoli_docs")

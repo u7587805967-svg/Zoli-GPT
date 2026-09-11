@@ -12,8 +12,11 @@ from ultra_core_engine import ZoliUltraEngine
 from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
 
+with open("main.py", encoding="utf-8") as f:
+    exec(f.read())
+
 app = FastAPI(
-    title="ZoliGPT Ultra API",
+    title="ZoliGPT API",
     version="3.0.0",
     description="Zéró-latenciájú, aszinkron hibrid RAG és webes kereső motor."
 )
