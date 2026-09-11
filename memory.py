@@ -25,4 +25,3 @@ def render_history():
 def clear_memory():
     """Kiüríti a teljes memóriát."""
     st.session_state.messages = []
-[cite: 8]
