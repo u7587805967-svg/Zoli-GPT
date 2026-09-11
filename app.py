@@ -69,6 +69,9 @@ from engine import AutonomousAgent, UniversalFile
 from core_agent_loop import run_reasoning_loop
 from retrieval_context_builder import DynamicMemoryRAG
 import runpy
+from ultra_core_engine import ZoliUltraEngine
+from ultra_retriever import UltraHybridRetriever
+from ultra_web_agent import UltraWebAgent
 
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
