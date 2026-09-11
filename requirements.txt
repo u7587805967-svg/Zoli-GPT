@@ -8,9 +8,7 @@ duckduckgo-search
 Pillow
 pypdf
 python-docx
-
 groq
-
 requests
 googlesearch-python
 beautifulsoup4
@@ -31,3 +29,5 @@ rank_bm25
 aiohttp
 aiosqlite
 chromadb
+fastapi
+pydantic
