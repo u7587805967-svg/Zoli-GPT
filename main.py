@@ -11,6 +11,8 @@ from sentence_transformers import SentenceTransformer
 from ultra_core_engine import ZoliUltraEngine
 from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
+from pipeline import run_pipeline
+
 
 with open("main.py", encoding="utf-8") as f:
     exec(f.read())
@@ -91,6 +93,9 @@ async def run_cli():
 if __name__ == "__main__":
     if "--cli" in sys.argv:
         asyncio.run(run_cli())
+
+if __name__ == "__main__":
+    asyncio.run(main())
     else:
         import uvicorn
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
