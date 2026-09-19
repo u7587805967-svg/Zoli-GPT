@@ -72,23 +72,6 @@ import runpy
 from ultra_core_engine import ZoliUltraEngine
 from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
-from chat_renderer import setup_image_renderer
-setup_image_renderer()
-
-from image_handler import render_smart_content
-
-# 1. Elmentjük a gyári st.markdown-t helyben
-_streamlit_markdown = st.markdown
-
-# 2. Definiáljuk a saját beillesztőnket
-def custom_markdown(body, *args, **kwargs):
-    if isinstance(body, str) and "[IMAGE:" in body:
-        render_smart_content(body)
-    else:
-        _streamlit_markdown(body, *args, **kwargs)
-
-# 3. Átírjuk a st.markdown-t
-st.markdown = custom_markdown
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 my_chroma_db = chroma_client.get_or_create_collection(name="zoli_docs")
