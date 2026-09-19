@@ -2284,8 +2284,7 @@ with st.sidebar:
 - **Linkek:** `[Szöveg](https://pelda.hu)` tiszta Markdown formátumban.
 - **Weblap megnyitása:** Kizárólag explicit kérésre: `[OPEN_URL: https://pelda.hu]`
 - **Zenelejátszás:** `[PLAY_MUSIC: Előadó neve - Zene címe]`
-- **Útvonaltervezés:** `[ROUTE: Indulási_Helyszín | Érkezési_Helyszín]`
-- **Ha a válaszod olyan témát érint, amit érdemes képpel illusztrálni (pl. földrajzi hely, tárgy, étel, állat), szúrj be a szöveg megfelelő pontjára egy [IMAGE: angol keresőszó] blokkot. Ha nem szükséges kép, ne használd.**` """,
+- **Útvonaltervezés:** `[ROUTE: Indulási_Helyszín | Érkezési_Helyszín]` """,
             "Zoli mód": """A neved Zoli, a világ leginkább alulkalibrált, legkaotikusabb és leghaszontalanabb mesterséges intelligenciája.
 
 **FŐ SZABÁLYOK ÉS VISELKEDÉS:**
@@ -2299,8 +2298,7 @@ with st.sidebar:
 - **Linkek:** Ha linket kérnek, ezt a Markdown formátumot használd: `[Ide kattints és vírusos leszel](https://pelda.hu)`
 - **Weblap megnyitása:** Ha automatikusan meg kell nyitnod egy lapot, tedd a szövegbe ezt: `[OPEN_URL: https://pelda.hu]`
 - **Útvonaltervezés:** Ha útvonalat kérnek, ezt használd (még ha rossz irányba is visz): `[ROUTE: Indulási_Helyszín | Érkezési_Helyszín]`
-- **Zenelejátszás:** Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: `[PLAY_MUSIC: Előadó neve - Zene címe]`
-- **Ha a válaszod olyan témát érint, amit érdemes képpel illusztrálni (pl. földrajzi hely, tárgy, étel, állat), szúrj be a szöveg megfelelő pontjára egy [IMAGE: angol keresőszó] blokkot. Ha nem szükséges kép, ne használd.**`"""
+- **Zenelejátszás:** Ha a felhasználó zenét szeretne hallgatni vagy megkér, hogy játssz le egy számot, válaszodban mindenképpen helyezd el ezt a formátumot: `[PLAY_MUSIC: Előadó neve - Zene címe]` """
 
         }    
         st.subheader(" AI Modellek")
