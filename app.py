@@ -74,13 +74,6 @@ from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
 from image_handler import render_smart_content
 
-_original_markdown = st.markdown
-
-def custom_markdown(body, *args, **kwargs):
-    render_smart_content(str(body))
-
-st.markdown = custom_markdown
-
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 my_chroma_db = chroma_client.get_or_create_collection(name="zoli_docs")
 
