@@ -75,14 +75,19 @@ from ultra_web_agent import UltraWebAgent
 from chat_renderer import setup_image_renderer
 setup_image_renderer()
 
-from image_handler import render_smart_content, _real_markdown
+from image_handler import render_smart_content
 
+# 1. Elmentjük a gyári st.markdown-t helyben
+_streamlit_markdown = st.markdown
+
+# 2. Definiáljuk a saját beillesztőnket
 def custom_markdown(body, *args, **kwargs):
     if isinstance(body, str) and "[IMAGE:" in body:
         render_smart_content(body)
     else:
-        _real_markdown(body, *args, **kwargs)
+        _streamlit_markdown(body, *args, **kwargs)
 
+# 3. Átírjuk a st.markdown-t
 st.markdown = custom_markdown
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")

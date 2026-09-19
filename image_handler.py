@@ -2,8 +2,8 @@ import re
 import requests
 import streamlit as st
 
-# ELMENTJÜK AZ EREDETI STREAMLIT MARKDOWN-T (így nem importálunk az app.py-ból):
-_real_markdown = st.markdown
+# ELMENTJÜK AZ EREDETI MARKDOWN-T (elkerüli a rekurziót és az ImportError-t):
+_original_markdown = st.markdown
 
 PIXABAY_API_KEY = st.secrets.get("PIXABAY_API_KEY", "")
 
@@ -36,8 +36,8 @@ def render_smart_content(content: str):
     for i, part in enumerate(parts):
         if i % 2 == 0:
             if part.strip():
-                # Az eredeti, biztonságos markdown-t hívjuk meg:
-                _real_markdown(part, unsafe_allow_html=True)
+                # Az eredeti markdown-t hívjuk meg:
+                _original_markdown(part, unsafe_allow_html=True)
         else:
             image_query = part.strip()
             if image_query:
