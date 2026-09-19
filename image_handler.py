@@ -27,19 +27,19 @@ def get_pixabay_image_url(query: str) -> str | None:
     return None
 
 def render_smart_content(content: str):
-    # Importáljuk az eredeti markdown-t a rekurzió (lefagyás) elkerülésére
-    from chat_renderer import _real_markdown
-    
+    # FONTOS: Az app.py-ban elmentett GYÁRI markdown-t hívjuk meg!
+    from app import _streamlit_markdown
+
     pattern = r"\[IMAGE:\s*(.*?)\]"
     parts = re.split(pattern, content)
 
     for i, part in enumerate(parts):
         if i % 2 == 0:
             if part.strip():
-                _real_markdown(part, unsafe_allow_html=True)
+                _streamlit_markdown(part)
         else:
             image_query = part.strip()
             if image_query:
                 img_url = get_pixabay_image_url(image_query)
                 if img_url:
-                    st.image(img_url, caption=f"Kép: {image_query} (Pixabay)", use_container_width=True)
+                    st.image(img_url, caption=f"Kép: {image_query}", use_container_width=True)
