@@ -2,6 +2,9 @@ import re
 import requests
 import streamlit as st
 
+# ELMENTJÜK AZ EREDETI STREAMLIT MARKDOWN-T (így nem importálunk az app.py-ból):
+_real_markdown = st.markdown
+
 PIXABAY_API_KEY = st.secrets.get("PIXABAY_API_KEY", "")
 
 def get_pixabay_image_url(query: str) -> str | None:
@@ -27,16 +30,14 @@ def get_pixabay_image_url(query: str) -> str | None:
     return None
 
 def render_smart_content(content: str):
-    # FONTOS: Az app.py-ban elmentett GYÁRI markdown-t hívjuk meg!
-    from app import _streamlit_markdown
-
     pattern = r"\[IMAGE:\s*(.*?)\]"
     parts = re.split(pattern, content)
 
     for i, part in enumerate(parts):
         if i % 2 == 0:
             if part.strip():
-                _streamlit_markdown(part)
+                # Az eredeti, biztonságos markdown-t hívjuk meg:
+                _real_markdown(part, unsafe_allow_html=True)
         else:
             image_query = part.strip()
             if image_query:

@@ -75,13 +75,13 @@ from ultra_web_agent import UltraWebAgent
 from chat_renderer import setup_image_renderer
 setup_image_renderer()
 
-_streamlit_markdown = st.markdown
+from image_handler import render_smart_content, _real_markdown
 
 def custom_markdown(body, *args, **kwargs):
     if isinstance(body, str) and "[IMAGE:" in body:
         render_smart_content(body)
     else:
-        _streamlit_markdown(body, *args, **kwargs)
+        _real_markdown(body, *args, **kwargs)
 
 st.markdown = custom_markdown
 
