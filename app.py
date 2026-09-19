@@ -72,7 +72,8 @@ import runpy
 from ultra_core_engine import ZoliUltraEngine
 from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
-from image_handler import render_smart_content
+from chat_renderer import setup_image_renderer
+setup_image_renderer()
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 my_chroma_db = chroma_client.get_or_create_collection(name="zoli_docs")

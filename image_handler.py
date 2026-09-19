@@ -2,15 +2,11 @@ import re
 import requests
 import streamlit as st
 
-# ELMENTJÜK AZ EREDETI STREAMLIT MARKDOWN-T A VÉGTELEN CIKLUS ELKERÜLÉSÉRE
-_original_markdown = st.markdown
-
 PIXABAY_API_KEY = st.secrets.get("PIXABAY_API_KEY", "")
 
 def get_pixabay_image_url(query: str) -> str | None:
-    if not PIXABAY_API_KEY or PIXABAY_API_KEY == "A_TI_PIXABAY_API_KULCSOD":
+    if not PIXABAY_API_KEY:
         return None
-
     url = "https://pixabay.com/api/"
     params = {
         "key": PIXABAY_API_KEY,
@@ -20,7 +16,6 @@ def get_pixabay_image_url(query: str) -> str | None:
         "per_page": 3,
         "safesearch": "true"
     }
-
     try:
         response = requests.get(url, params=params, timeout=5)
         if response.status_code == 200:
@@ -32,18 +27,16 @@ def get_pixabay_image_url(query: str) -> str | None:
     return None
 
 def render_smart_content(content: str):
-    """
-    Feldolgozza a szöveget: a [IMAGE: ...] tagek helyére képet szúr be, 
-    a sima szövegrészeket pedig az eredeti markdown funkcióval írja ki.
-    """
+    # Importáljuk az eredeti markdown-t a rekurzió (lefagyás) elkerülésére
+    from chat_renderer import _real_markdown
+    
     pattern = r"\[IMAGE:\s*(.*?)\]"
     parts = re.split(pattern, content)
 
     for i, part in enumerate(parts):
         if i % 2 == 0:
-            # ITT AZ EREDETI MARKDOWN-T HÍVJUK MEG (nem végtelen ciklus):
             if part.strip():
-                _original_markdown(part, unsafe_allow_html=True)
+                _real_markdown(part, unsafe_allow_html=True)
         else:
             image_query = part.strip()
             if image_query:
