@@ -351,7 +351,11 @@ def safe_completion(client, messages, chosen_model, allowed_list):
             continue
     raise RuntimeError("Egyik engedélyezett modell sem válaszolt az API-n keresztül.")
 
-        response = safe_completion(client, [{"role": "user", "content": prompt}], model_name, szurt_modellek)
+response = safe_completion(client, [{"role": "user", "content": prompt}], model_name, szurt_modellek)
+
+if response and response.choices:
+    content = response.choices[0].message.content.strip()
+    match = re.search(r'
         content = response.choices[0].message.content.strip()
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
