@@ -2,22 +2,20 @@ import asyncio
 import os
 import sys
 import time
+import logging
 from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 from ultra_core_engine import ZoliUltraEngine
 from ultra_retriever import UltraHybridRetriever
 from ultra_web_agent import UltraWebAgent
-from pipeline import run_pipeline
-
-
-with open("main.py", encoding="utf-8") as f:
-    exec(f.read())
-
-st.title("Zoli GPT")
 
 app = FastAPI(
     title="ZoliGPT API",
@@ -25,9 +23,26 @@ app = FastAPI(
     description="Zéró-latenciájú, aszinkron hibrid RAG és webes kereső motor."
 )
 
-embedder_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-retriever = UltraHybridRetriever()
-web_agent = UltraWebAgent(timeout_seconds=1.5)
+def load_embedder():
+    if SentenceTransformer is None:
+        logging.warning("sentence-transformers nincs telepítve; a keresés BM25 módban indul.")
+        return None
+    try:
+        return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    except Exception as error:
+        logging.warning("A szemantikus modell nem tölthető be; BM25 fallback: %s", error)
+        return None
+
+
+embedder_model = load_embedder()
+retriever = UltraHybridRetriever(
+    embedder=embedder_model,
+    database_path=os.getenv("ZOLI_DATABASE_PATH", "zoli_gpt_enterprise.db"),
+    username=os.getenv("ZOLI_USERNAME"),
+    documents_dir=os.getenv("ZOLI_DOCUMENTS_DIR"),
+    min_dense_similarity=float(os.getenv("ZOLI_MIN_DENSE_SIMILARITY", "0.45")),
+)
+web_agent = UltraWebAgent(timeout_seconds=5.0)
 
 groq_key = os.getenv("GROQ_API_KEY", "")
 engine = ZoliUltraEngine(groq_api_key=groq_key, embedder=embedder_model)
@@ -40,7 +55,12 @@ class ChatRequest(BaseModel):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "timestamp": time.time()}
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "indexed_chunks": retriever.document_count,
+        "dense_search": embedder_model is not None,
+    }
 
 
 @app.post("/api/v1/chat")
@@ -93,9 +113,6 @@ async def run_cli():
 if __name__ == "__main__":
     if "--cli" in sys.argv:
         asyncio.run(run_cli())
-
-if __name__ == "__main__":
-    asyncio.run(main())
     else:
         import uvicorn
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

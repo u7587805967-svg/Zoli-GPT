@@ -31,3 +31,4 @@ aiosqlite
 chromadb
 fastapi
 pydantic
+uvicorn
