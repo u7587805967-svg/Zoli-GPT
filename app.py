@@ -355,7 +355,7 @@ response = safe_completion(client, [{"role": "user", "content": prompt}], model_
 
 if response and response.choices:
     content = response.choices[0].message.content.strip()
-    match = re.search(r'
+    match = re.search
         content = response.choices[0].message.content.strip()
         match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
