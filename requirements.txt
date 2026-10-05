@@ -28,7 +28,7 @@ langchain-huggingface
 rank_bm25
 aiohttp
 aiosqlite
-chromadb==0.6.3
+chromadb==1.5.9
 fastapi
 pydantic
 uvicorn
