@@ -339,17 +339,17 @@ Kérdés: {felhasznalo_kerdese}
     return [felhasznalo_kerdese]
 
 
-        def safe_completion(client, messages, chosen_model, allowed_list):
-            models_to_try = [chosen_model] + [m for m in allowed_list if m != chosen_model]
-            for model in models_to_try:
-                try:
-                    return client.chat.completions.create(
-                        model=model,
-                        messages=messages
-                    )
-                except Exception:
-                    continue
-            raise RuntimeError("Egyik engedélyezett modell sem válaszolt az API-n keresztül.")
+def safe_completion(client, messages, chosen_model, allowed_list):
+    models_to_try = [chosen_model] + [m for m in allowed_list if m != chosen_model]
+    for model in models_to_try:
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+        except Exception:
+            continue
+    raise RuntimeError("Egyik engedélyezett modell sem válaszolt az API-n keresztül.")
 
         response = safe_completion(client, [{"role": "user", "content": prompt}], model_name, szurt_modellek)
         content = response.choices[0].message.content.strip()
