@@ -293,6 +293,8 @@ HUNGARIAN_STOPWORDS = {
 
 @st.cache_data(ttl=3600)
 def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_name: str = None) -> list[str]:
+    import json
+
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y-%m-%d")
     aktualis_ev = most.year
@@ -303,17 +305,39 @@ def optimalizal_keresesi_kifejezeseket(client, felhasznalo_kerdese: str, model_n
     if not model_name or model_name not in szurt_modellek:
         model_name = szurt_modellek[0]
 
-    try:
-        prompt = f"""
-        Ma {aktualis_datum} van ({aktualis_ev}. év), de ezt ne emlegetsd csak vedd figyelembe a válaszadásnál.
-        Hozz létre pontosan 3 eltérő, rövid és időszerű keresőkifejezést webes kereséshez a következő kérdésből.
-        Ha a kérdés friss eseményre utal, építsd be a(z) {aktualis_ev} évet!
+    models_to_try = [model_name] + [m for m in szurt_modellek if m != model_name]
 
-        Kizárólag egy érvényes JSON tömböt adj vissza stringekkel!
-        Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
+    prompt = f"""
+Ma {aktualis_datum} van ({aktualis_ev}. év), de ezt ne emlegetsd csak vedd figyelembe a válaszadásnál.
+Hozz létre pontosan 3 eltérő, rövid és időszerű keresőkifejezést webes kereséshez a következő kérdésből.
+Ha a kérdés friss eseményre utal, építsd be a(z) {aktualis_ev} évet!
 
-        Kérdés: {felhasznalo_kerdese}
-        """
+Kizárólag egy érvényes JSON tömböt adj vissza stringekkel!
+Példa: ["kifejezés 1", "kifejezés 2", "kifejezés 3"]
+
+Kérdés: {felhasznalo_kerdese}
+"""
+
+    for current_model in models_to_try:
+        try:
+            response = client.chat.completions.create(
+                model=current_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=200
+            )
+            raw_content = response.choices[0].message.content.strip()
+            
+            search_queries = json.loads(raw_content)
+            if isinstance(search_queries, list):
+                return search_queries
+
+        except Exception as e:
+            print(f"[FIGYELMEZTETÉS] Keresésoptimalizálási hiba a(z) '{current_model}' modellnél: {e}. Váltás...")
+            continue
+
+    return [felhasznalo_kerdese]
+
 
         def safe_completion(client, messages, chosen_model, allowed_list):
             models_to_try = [chosen_model] + [m for m in allowed_list if m != chosen_model]
@@ -717,7 +741,8 @@ def generald_a_hajszalpontos_valaszt_v2(
     chat_history: list = None, 
     web_kontextus: str = "", 
     doc_kontextus: str = "", 
-    model_name: str = "llama-3.3-70b-versatile"
+    model_name: str = "llama-3.3-70b-versatile",
+    ALLOWED_MODELS: list = None
 ):
     most = datetime.datetime.now()
     aktualis_datum = most.strftime("%Y. %B %d.")
@@ -747,12 +772,31 @@ FELADAT:
             messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": felhasznalo_kerdese})
 
-    draft_response = client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        temperature=0.1,
-        max_tokens=2500
-    ).choices[0].message.content
+    if ALLOWED_MODELS:
+        models_to_try = [model_name] + [m for m in ALLOWED_MODELS if m != model_name]
+    else:
+        models_to_try = [model_name]
+
+    draft_response = None
+    last_exception = None
+
+    for current_model in models_to_try:
+        try:
+            draft_response = client.chat.completions.create(
+                model=current_model,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=2500
+            ).choices[0].message.content
+            model_name = current_model  # Működő modell rögzítése
+            break
+        except Exception as e:
+            print(f"[FIGYELMEZTETÉS] Hiba a vázlat generálásakor ({current_model}): {e}. Váltás...")
+            last_exception = e
+            continue
+
+    if not draft_response:
+        raise RuntimeError(f"Minden modell csődöt mondott a vázlat generálásánál. Utolsó hiba: {last_exception}")
 
     verified_response = tobblepces_ellenorzo_hurok(
         client=client,
@@ -773,12 +817,23 @@ Válasz:
 {verified_response}
 """
 
-    final_response = client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": final_polishing_prompt}],
-        temperature=0.0,
-        max_tokens=3000
-    ).choices[0].message.content
+    final_response = None
+    for current_model in models_to_try:
+        try:
+            final_response = client.chat.completions.create(
+                model=current_model,
+                messages=[{"role": "user", "content": final_polishing_prompt}],
+                temperature=0.0,
+                max_tokens=3000
+            ).choices[0].message.content
+            break
+        except Exception as e:
+            print(f"[FIGYELMEZTETÉS] Hiba a végső simításnál ({current_model}): {e}. Váltás...")
+            last_exception = e
+            continue
+
+    if not final_response:
+        return verified_response  # Ha a simítás elakad, visszaadjuk a verifikált választ
 
     return final_response
     
@@ -1595,21 +1650,50 @@ class AsyncAIEngine:
             st.error(" Hiányzó Groq API kulcs!")
             yield "Hiba: Nincs konfigurálva API kulcs."
             return
+
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY)
+
+        models_to_try = [model]
+        if hasattr(self, 'ALLOWED_MODELS') and self.ALLOWED_MODELS:
+            models_to_try += [m for m in self.ALLOWED_MODELS if m != model]
+        elif 'ALLOWED_MODELS' in globals():
+            models_to_try += [m for m in ALLOWED_MODELS if m != model]
+
+        stream = None
+        used_model = None
+
+        for current_model in models_to_try:
+            try:
+                stream = client.chat.completions.create(
+                    model=current_model,
+                    messages=messages,
+                    stream=True,
+                    timeout=60.0
+                )
+                used_model = current_model
+                break
+            except Exception as e:
+                print(f"[FIGYELMEZTETÉS] Stream indítási hiba a(z) '{current_model}' modellnél: {e}. Váltás...")
+                continue
+
+        if not stream:
+            yield " Szerver hiba: Egyik AI modell sem érhető el jelenleg (token limit vagy hálózati fennakadás)."
+            return
+
+        estimated_tokens = 0
         try:
-            client = Groq(api_key=GROQ_API_KEY)
-            stream = client.chat.completions.create(model=model, messages=messages, stream=True, timeout=60.0)
-            
-            estimated_tokens = 0
             for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     estimated_tokens += max(1, len(content) // 4)
                     yield content
-                    
-            if username and estimated_tokens > 0:
-                self.db.log_tokens(username, estimated_tokens, model)
+
+            if username and estimated_tokens > 0 and hasattr(self, 'db'):
+                self.db.log_tokens(username, estimated_tokens, used_model)
+
         except Exception as e:
-            yield f"Szerver hiba: {e}"
+            yield f"\n\n[Szerver hiba a válaszadás közben: {e}]"
 
     def text_to_speech(self, text: str) -> bytes:
         if not text: return None
